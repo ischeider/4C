@@ -87,6 +87,9 @@ void INPAR::PARTICLE::SetValidParameters(Teuchos::RCP<Teuchos::ParameterList> li
   StringParameter("INITIAL_POSITION_AMPLITUDE", "0.0 0.0 0.0",
       "amplitude of noise added to initial position for each spatial direction", &particledyn);
 
+  IntParameter(
+      "RADIUS_RAMP_FUNCT", -1, "number of function the radii are scaled over time", &particledyn);
+
   // type of particle wall source
   setStringToIntegralParameter<int>("PARTICLE_WALL_SOURCE", "NoParticleWall",
       "type of particle wall source",

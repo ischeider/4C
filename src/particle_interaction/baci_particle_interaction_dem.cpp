@@ -137,6 +137,9 @@ void PARTICLEINTERACTION::ParticleInteractionDEM::SetInitialStates()
 void PARTICLEINTERACTION::ParticleInteractionDEM::PreEvaluateTimeStep()
 {
   TEUCHOS_FUNC_TIME_MONITOR("PARTICLEINTERACTION::ParticleInteractionDEM::PreEvaluateTimeStep");
+
+  // call base class pre evaluate
+  ParticleInteractionBase::PreEvaluateTimeStep();
 }
 
 void PARTICLEINTERACTION::ParticleInteractionDEM::EvaluateInteractions()

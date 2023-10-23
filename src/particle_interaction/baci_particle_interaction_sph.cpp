@@ -333,6 +333,9 @@ void PARTICLEINTERACTION::ParticleInteractionSPH::PreEvaluateTimeStep()
 {
   TEUCHOS_FUNC_TIME_MONITOR("PARTICLEINTERACTION::ParticleInteractionSPH::PreEvaluateTimeStep");
 
+  // call base class pre evaluate
+  ParticleInteractionBase::PreEvaluateTimeStep();
+
   // prescribe open boundary states
   if (dirichletopenboundary_) dirichletopenboundary_->PrescribeOpenBoundaryStates(time_);
 
