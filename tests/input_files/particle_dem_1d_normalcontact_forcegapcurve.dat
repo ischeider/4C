@@ -1,0 +1,52 @@
+==================================================================
+                  General Data File BACI
+==================================================================
+-----------------------------------------------------------------PROBLEM TYP
+PROBLEMTYP                      Particle
+--------------------------------------------------------------------------IO
+STDOUTEVRY                      200
+VERBOSITY                       standard
+------------------------------------------------------------BINNING STRATEGY
+BIN_SIZE_LOWER_BOUND            0.03
+PERIODICONOFF                   1 1 1
+DOMAINBOUNDINGBOX               -0.05 -0.05 -0.05 0.05 0.05 0.05
+WRITEBINS                       rows
+------------------------------------------------------------PARTICLE DYNAMIC
+DYNAMICTYP                      VelocityVerlet
+INTERACTION                     DEM
+RESULTSEVRY                     10
+RESTARTEVRY                     500
+TIMESTEP                        0.001
+NUMSTEP                         5000
+MAXTIME                         5
+PHASE_TO_DYNLOADBALFAC          phase1 1.0
+PHASE_TO_MATERIAL_ID            phase1 1
+RADIUS_RAMP_FUNCT               3
+----------------------------PARTICLE DYNAMIC/INITIAL AND BOUNDARY CONDITIONS
+INITIAL_VELOCITY_FIELD          phase1 1
+--------------------------------------------------------PARTICLE DYNAMIC/DEM
+//NORMALCONTACTLAW                NormalForceDistanceCurve
+NORMALCONTACTLAW                NormalForceDistanceCurveDamp
+NORMAL_CONTACT_FORCE_DIST_CURVE 2
+NORMAL_CONTACT_INTERACTION_HORIZON  0.005
+MAX_RADIUS                      0.01      // zentrischer Flug -> Groesse Partikel (damping relevant)
+MAX_VELOCITY                    3.0e-2    // zentrischer Flug -> GEschwindigkeit (damping relevant)
+REL_PENETRATION                 0.05      // max erlaubte Durchdringung zweier zentrisch fliegender Partikel mit Radius MAX_RADIUS und MAX_VELOCITY (damping relevant)
+COEFF_RESTITUTION               0.5       // vollplastisch = 0.0, elastisch = 1.0 (dampinng relevant)
+----------------------------------------------------------------------FUNCT1
+COMPONENT 0 SYMBOLIC_FUNCTION_OF_SPACE_TIME 1.0e-2*(2.0*heaviside(-x)-heaviside(x))
+COMPONENT 1 SYMBOLIC_FUNCTION_OF_SPACE_TIME 0.0
+COMPONENT 2 SYMBOLIC_FUNCTION_OF_SPACE_TIME 0.0
+----------------------------------------------------------------------FUNCT2
+//FASTPOLYNOMIAL NUMCOEFF 5 COEFF 1e-12 0.0 0.0 0.0 -1.0e-3
+CUBIC_SPLINE_FROM_CSV CSV particle_dem_1d_force_gap_curve.csv
+----------------------------------------------------------------------FUNCT3
+SYMBOLIC_FUNCTION_OF_TIME 1*a
+VARIABLE 0 NAME a TYPE linearinterpolation NUMPOINTS 5 TIMES 0.0 0.001 0.1 0.10000001 5.0 VALUES 1.0 1.00182 1.00182 1.0 1.0
+-------------------------------------------------------------------MATERIALS
+MAT 1 MAT_ParticleDEM INITRADIUS 0.01 INITDENSITY 5.0e-3
+----------------------------------------------------------RESULT DESCRIPTION
+-------------------------------------------------------------------PARTICLES
+TYPE phase1 POS -0.015 0.0 0.0
+TYPE phase1 POS 0.015 0.0 0.0
+-------------------------------------------------------------------------END
