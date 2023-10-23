@@ -158,6 +158,9 @@ namespace PARTICLEINTERACTION
 
     //! write particle energy output
     const bool writeparticleenergy_;
+
+    //! if gap is smaller than this distance, interaction forces are evaluated
+    const double interaction_horizon_;
   };
 
 }  // namespace PARTICLEINTERACTION

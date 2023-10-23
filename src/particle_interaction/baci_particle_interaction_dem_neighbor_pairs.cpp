@@ -50,13 +50,13 @@ void PARTICLEINTERACTION::DEMNeighborPairs::Setup(
   particlewallinterface_ = particlewallinterface;
 }
 
-void PARTICLEINTERACTION::DEMNeighborPairs::EvaluateNeighborPairs()
+void PARTICLEINTERACTION::DEMNeighborPairs::EvaluateNeighborPairs(const double& interaction_horizon)
 {
   // evaluate particle pairs
-  EvaluateParticlePairs();
+  EvaluateParticlePairs(interaction_horizon);
 
   // evaluate particle-wall pairs
-  if (particlewallinterface_) EvaluateParticleWallPairs();
+  if (particlewallinterface_) EvaluateParticleWallPairs(interaction_horizon);
 }
 
 void PARTICLEINTERACTION::DEMNeighborPairs::EvaluateNeighborPairsAdhesion(
@@ -69,7 +69,7 @@ void PARTICLEINTERACTION::DEMNeighborPairs::EvaluateNeighborPairsAdhesion(
   if (particlewallinterface_) EvaluateParticleWallPairsAdhesion(adhesion_distance);
 }
 
-void PARTICLEINTERACTION::DEMNeighborPairs::EvaluateParticlePairs()
+void PARTICLEINTERACTION::DEMNeighborPairs::EvaluateParticlePairs(const double& interaction_horizon)
 {
   TEUCHOS_FUNC_TIME_MONITOR("PARTICLEINTERACTION::DEMNeighborPairs::EvaluateParticlePairs");
 
@@ -124,7 +124,7 @@ void PARTICLEINTERACTION::DEMNeighborPairs::EvaluateParticlePairs()
     const double gap = absdist - rad_i[0] - rad_j[0];
 
     // neighboring particles within interaction distance
-    if (gap < 0.0)
+    if (gap < interaction_horizon)
     {
       // initialize particle pair
       particlepairdata_.push_back(DEMParticlePair());
@@ -148,7 +148,8 @@ void PARTICLEINTERACTION::DEMNeighborPairs::EvaluateParticlePairs()
   }
 }
 
-void PARTICLEINTERACTION::DEMNeighborPairs::EvaluateParticleWallPairs()
+void PARTICLEINTERACTION::DEMNeighborPairs::EvaluateParticleWallPairs(
+    const double& interaction_horizon)
 {
   TEUCHOS_FUNC_TIME_MONITOR("PARTICLEINTERACTION::DEMNeighborPairs::EvaluateParticleWallPairs");
 
@@ -213,7 +214,7 @@ void PARTICLEINTERACTION::DEMNeighborPairs::EvaluateParticleWallPairs()
     const double gap = absdist - rad_i[0];
 
     // neighboring particle and wall element within interaction distance
-    if (gap < 0.0)
+    if (gap < interaction_horizon)
     {
       // initialize particle-wall pair
       particlewallpairdata_.push_back(DEMParticleWallPair());

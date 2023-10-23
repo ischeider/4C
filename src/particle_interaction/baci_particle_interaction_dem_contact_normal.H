@@ -21,6 +21,17 @@
 BACI_NAMESPACE_OPEN
 
 /*---------------------------------------------------------------------------*
+ | forward declarations                                                      |
+ *---------------------------------------------------------------------------*/
+namespace DRT
+{
+  namespace UTILS
+  {
+    class FunctionOfScalar;
+  }
+}  // namespace DRT
+
+/*---------------------------------------------------------------------------*
  | class declarations                                                        |
  *---------------------------------------------------------------------------*/
 namespace PARTICLEINTERACTION
@@ -74,7 +85,7 @@ namespace PARTICLEINTERACTION
     double k_normal_crit_;
   };
 
-  class DEMContactNormalLinearSpring : public DEMContactNormalBase
+  class DEMContactNormalLinearSpring : public virtual DEMContactNormalBase
   {
    public:
     //! constructor
@@ -107,7 +118,7 @@ namespace PARTICLEINTERACTION
     void NormalContactForce(const double& gap, const double* radius_i, const double* radius_j,
         const double& v_rel_normal, const double& m_eff, double& normalcontactforce) const override;
 
-   private:
+   protected:
     //! coefficient of restitution
     const double e_;
 
@@ -197,6 +208,54 @@ namespace PARTICLEINTERACTION
     //! evaluate normal contact force
     void NormalContactForce(const double& gap, const double* radius_i, const double* radius_j,
         const double& v_rel_normal, const double& m_eff, double& normalcontactforce) const override;
+  };
+
+  class DEMContactNormalForceDistanceCurve : public virtual DEMContactNormalBase
+  {
+   public:
+    //! constructor
+    explicit DEMContactNormalForceDistanceCurve(const Teuchos::ParameterList& params);
+
+    //! init normal contact handler
+    void Init() override;
+
+    //! setup normal contact handler
+    void Setup(const double& dens_max) const;
+
+    //! evaluate normal contact force
+    void NormalContactForce(const double& gap, const double* radius_i, const double* radius_j,
+        const double& v_rel_normal, const double& m_eff, double& normalcontactforce) const override;
+
+    //! evaluate normal potential energy
+    void NormalPotentialEnergy(const double& gap, double& normalpotentialenergy) const override;
+
+   protected:
+    //! curve id which describes force distance relationship
+    const int curve_id_;
+
+    //! force distance relationship
+    const DRT::UTILS::FunctionOfScalar& force_gap_curve_;
+  };
+
+  class DEMContactNormalForceDistanceCurveDamp : public DEMContactNormalForceDistanceCurve,
+                                                 public DEMContactNormalLinearSpringDamp
+  {
+   public:
+    //! constructor
+    explicit DEMContactNormalForceDistanceCurveDamp(const Teuchos::ParameterList& params);
+
+    //! init normal contact handler
+    void Init() override;
+
+    //! setup normal contact handler
+    void Setup(const double& dens_max) override;
+
+    //! evaluate normal contact force
+    void NormalContactForce(const double& gap, const double* radius_i, const double* radius_j,
+        const double& v_rel_normal, const double& m_eff, double& normalcontactforce) const override;
+
+    //! evaluate normal potential energy
+    void NormalPotentialEnergy(const double& gap, double& normalpotentialenergy) const override;
   };
 
 }  // namespace PARTICLEINTERACTION

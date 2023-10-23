@@ -87,17 +87,17 @@ namespace PARTICLEINTERACTION
     };
 
     //! evaluate neighbor pairs
-    void EvaluateNeighborPairs();
+    void EvaluateNeighborPairs(const double& interaction_horizon);
 
     //! evaluate adhesion neighbor pairs
     void EvaluateNeighborPairsAdhesion(const double& adhesion_distance);
 
    private:
     //! evaluate particle pairs
-    void EvaluateParticlePairs();
+    void EvaluateParticlePairs(const double& interaction_horizon);
 
     //! evaluate particle-wall pairs
-    void EvaluateParticleWallPairs();
+    void EvaluateParticleWallPairs(const double& interaction_horizon);
 
     //! evaluate adhesion particle pairs
     void EvaluateParticlePairsAdhesion(const double& adhesion_distance);

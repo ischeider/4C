@@ -403,11 +403,19 @@ void INPAR::PARTICLE::SetValidParameters(Teuchos::RCP<Teuchos::ParameterList> li
   setStringToIntegralParameter<int>("NORMALCONTACTLAW", "NormalLinearSpring",
       "normal contact law for particles",
       tuple<std::string>("NormalLinearSpring", "NormalLinearSpringDamp", "NormalHertz",
-          "NormalLeeHerrmann", "NormalKuwabaraKono", "NormalTsuji"),
+          "NormalLeeHerrmann", "NormalKuwabaraKono", "NormalTsuji", "NormalForceDistanceCurve",
+          "NormalForceDistanceCurveDamp"),
       tuple<int>(INPAR::PARTICLE::NormalLinSpring, INPAR::PARTICLE::NormalLinSpringDamp,
           INPAR::PARTICLE::NormalHertz, INPAR::PARTICLE::NormalLeeHerrmann,
-          INPAR::PARTICLE::NormalKuwabaraKono, INPAR::PARTICLE::NormalTsuji),
+          INPAR::PARTICLE::NormalKuwabaraKono, INPAR::PARTICLE::NormalTsuji,
+          INPAR::PARTICLE::NormalForceDistanceCurve, INPAR::PARTICLE::NormalForceDistanceCurveDamp),
       &particledyndem);
+
+  IntParameter("NORMAL_CONTACT_FORCE_DIST_CURVE", -1,
+      "number of function for normal contact force distance curve", &particledyndem);
+
+  DoubleParameter("NORMAL_CONTACT_INTERACTION_HORIZON", 0.0,
+      "if gap is smaller than this distance normal contact is evaluated", &particledyndem);
 
   // type of tangential contact law
   setStringToIntegralParameter<int>("TANGENTIALCONTACTLAW", "NoTangentialContact",

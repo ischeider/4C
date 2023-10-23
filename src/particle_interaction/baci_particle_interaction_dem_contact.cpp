@@ -180,6 +180,8 @@ void PARTICLEINTERACTION::DEMContact::CheckCriticalTimeStep() const
   // get critical normal contact stiffness
   const double k_normal_crit = contactnormal_->GetCriticalNormalContactStiffness();
 
+  if (k_normal_crit == 0.0) return;
+
   // critical time step size based on particle-particle contact
   const double safety = 0.75;
   const double factor = contacttangential_ ? 0.22 : 0.34;
@@ -253,6 +255,18 @@ void PARTICLEINTERACTION::DEMContact::InitNormalContactHandler()
     {
       contactnormal_ = std::unique_ptr<PARTICLEINTERACTION::DEMContactNormalTsuji>(
           new PARTICLEINTERACTION::DEMContactNormalTsuji(params_dem_));
+      break;
+    }
+    case INPAR::PARTICLE::NormalForceDistanceCurve:
+    {
+      contactnormal_ = std::unique_ptr<PARTICLEINTERACTION::DEMContactNormalForceDistanceCurve>(
+          new PARTICLEINTERACTION::DEMContactNormalForceDistanceCurve(params_dem_));
+      break;
+    }
+    case INPAR::PARTICLE::NormalForceDistanceCurveDamp:
+    {
+      contactnormal_ = std::unique_ptr<PARTICLEINTERACTION::DEMContactNormalForceDistanceCurveDamp>(
+          new PARTICLEINTERACTION::DEMContactNormalForceDistanceCurveDamp(params_dem_));
       break;
     }
     default:

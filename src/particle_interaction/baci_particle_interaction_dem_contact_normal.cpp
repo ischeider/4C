@@ -11,6 +11,8 @@
 #include "baci_particle_interaction_dem_contact_normal.H"
 
 #include "baci_inpar_particle.H"
+#include "baci_lib_function_library.H"
+#include "baci_lib_globalproblem.H"
 #include "baci_particle_interaction_utils.H"
 #include "baci_utils_exceptions.H"
 
@@ -79,7 +81,8 @@ void PARTICLEINTERACTION::DEMContactNormalLinearSpring::NormalPotentialEnergy(
 
 PARTICLEINTERACTION::DEMContactNormalLinearSpringDamp::DEMContactNormalLinearSpringDamp(
     const Teuchos::ParameterList& params)
-    : PARTICLEINTERACTION::DEMContactNormalLinearSpring(params),
+    : PARTICLEINTERACTION::DEMContactNormalBase(params),
+      PARTICLEINTERACTION::DEMContactNormalLinearSpring(params),
       e_(params_dem_.get<double>("COEFF_RESTITUTION")),
       damp_reg_fac_(params_dem_.get<double>("DAMP_REG_FAC")),
       d_normal_fac_(0.0)
@@ -239,6 +242,90 @@ void PARTICLEINTERACTION::DEMContactNormalTsuji::NormalContactForce(const double
 {
   normalcontactforce =
       -k_normal_ * (-gap) * std::sqrt(-gap) - d_normal_ * v_rel_normal * std::sqrt(std::sqrt(-gap));
+}
+
+PARTICLEINTERACTION::DEMContactNormalForceDistanceCurve::DEMContactNormalForceDistanceCurve(
+    const Teuchos::ParameterList& params)
+    : PARTICLEINTERACTION::DEMContactNormalBase(params),
+      curve_id_(params_dem_.get<int>("NORMAL_CONTACT_FORCE_DIST_CURVE")),
+      force_gap_curve_(
+          DRT::Problem::Instance()->FunctionById<DRT::UTILS::FunctionOfScalar>(curve_id_ - 1))
+{
+  // empty constructor
+}
+
+void PARTICLEINTERACTION::DEMContactNormalForceDistanceCurve::Init()
+{
+  // nothing to do
+}
+
+void PARTICLEINTERACTION::DEMContactNormalForceDistanceCurve::Setup(const double& dens_max) const
+{
+  // nothing to do
+}
+
+void PARTICLEINTERACTION::DEMContactNormalForceDistanceCurve::NormalContactForce(const double& gap,
+    const double* radius_i, const double* radius_j, const double& v_rel_normal, const double& m_eff,
+    double& normalcontactforce) const
+{
+  normalcontactforce = force_gap_curve_.Evaluate(gap);
+}
+
+void PARTICLEINTERACTION::DEMContactNormalForceDistanceCurve::NormalPotentialEnergy(
+    const double& gap, double& normalpotentialenergy) const
+{
+  normalpotentialenergy = 0.5 * force_gap_curve_.EvaluateDerivative(gap, 1) * UTILS::Pow<2>(gap);
+}
+
+PARTICLEINTERACTION::DEMContactNormalForceDistanceCurveDamp::DEMContactNormalForceDistanceCurveDamp(
+    const Teuchos::ParameterList& params)
+    : PARTICLEINTERACTION::DEMContactNormalBase(params),
+      PARTICLEINTERACTION::DEMContactNormalForceDistanceCurve(params),
+      PARTICLEINTERACTION::DEMContactNormalLinearSpringDamp(params)
+{
+  // empty constructor
+}
+
+void PARTICLEINTERACTION::DEMContactNormalForceDistanceCurveDamp::Init()
+{
+  // call base class init
+  DEMContactNormalLinearSpringDamp::Init();
+}
+
+void PARTICLEINTERACTION::DEMContactNormalForceDistanceCurveDamp::Setup(const double& dens_max)
+{
+  // call base class setup
+  DEMContactNormalLinearSpringDamp::Setup(dens_max);
+}
+
+void PARTICLEINTERACTION::DEMContactNormalForceDistanceCurveDamp::NormalContactForce(
+    const double& gap, const double* radius_i, const double* radius_j, const double& v_rel_normal,
+    const double& m_eff, double& normalcontactforce) const
+{
+  // determine normal contact damping parameter
+  double d_normal = d_normal_fac_ * std::sqrt(m_eff);
+
+  // linear regularization of damping force to reach full amplitude for g = damp_reg_fac_ * r_min
+  double reg_fac = 1.0;
+  if (damp_reg_fac_ > 0.0)
+  {
+    double rad_min = std::min(radius_i[0], radius_j[0]);
+
+    if (std::abs(gap) < damp_reg_fac_ * rad_min)
+      reg_fac = (std::abs(gap) / (damp_reg_fac_ * rad_min));
+  }
+
+  // evaluate normal contact force
+  double d1 = force_gap_curve_.Evaluate(gap);
+  double d2 = (d_normal * v_rel_normal * reg_fac);
+  normalcontactforce = force_gap_curve_.Evaluate(gap) - (d_normal * v_rel_normal * reg_fac);
+}
+
+void PARTICLEINTERACTION::DEMContactNormalForceDistanceCurveDamp::NormalPotentialEnergy(
+    const double& gap, double& normalpotentialenergy) const
+{
+  // call base class energy evaluation
+  DEMContactNormalForceDistanceCurve::NormalPotentialEnergy(gap, normalpotentialenergy);
 }
 
 BACI_NAMESPACE_CLOSE

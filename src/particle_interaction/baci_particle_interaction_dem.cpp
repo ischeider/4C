@@ -34,7 +34,8 @@ PARTICLEINTERACTION::ParticleInteractionDEM::ParticleInteractionDEM(
     const Epetra_Comm& comm, const Teuchos::ParameterList& params)
     : PARTICLEINTERACTION::ParticleInteractionBase(comm, params),
       params_dem_(params.sublist("DEM")),
-      writeparticleenergy_(DRT::INPUT::IntegralValue<int>(params_dem_, "WRITE_PARTICLE_ENERGY"))
+      writeparticleenergy_(DRT::INPUT::IntegralValue<int>(params_dem_, "WRITE_PARTICLE_ENERGY")),
+      interaction_horizon_(params_dem_.get<double>("NORMAL_CONTACT_INTERACTION_HORIZON"))
 {
   // empty constructor
 }
@@ -146,7 +147,7 @@ void PARTICLEINTERACTION::ParticleInteractionDEM::EvaluateInteractions()
   ClearForceAndMomentStates();
 
   // evaluate neighbor pairs
-  neighborpairs_->EvaluateNeighborPairs();
+  neighborpairs_->EvaluateNeighborPairs(interaction_horizon_);
 
   // evaluate adhesion neighbor pairs
   if (adhesion_) neighborpairs_->EvaluateNeighborPairsAdhesion(adhesion_->GetAdhesionDistance());
@@ -472,7 +473,7 @@ void PARTICLEINTERACTION::ParticleInteractionDEM::SetInitialInertia()
     const double* mass = container->GetPtrToState(PARTICLEENGINE::Mass, 0);
     double* inertia = container->GetPtrToState(PARTICLEENGINE::Inertia, 0);
 
-    // compute mass via particle volume and initial density
+    // inertia = 2/5 mass times radius squared
     for (int i = 0; i < particlestored; ++i) inertia[i] = 0.4 * mass[i] * UTILS::Pow<2>(radius[i]);
   }
 }

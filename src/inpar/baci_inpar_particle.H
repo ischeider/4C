@@ -216,7 +216,9 @@ namespace INPAR
       NormalHertz,
       NormalLeeHerrmann,
       NormalKuwabaraKono,
-      NormalTsuji
+      NormalTsuji,
+      NormalForceDistanceCurve,
+      NormalForceDistanceCurveDamp
     };
 
     //! type of tangential contact law
