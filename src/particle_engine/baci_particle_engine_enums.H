@@ -48,6 +48,7 @@ namespace PARTICLEENGINE
     ReferencePosition,  //!< reference position
     /*---------------------------------------------------------------------------*/
     // common particle states
+    InitRadius,   //!< initial radius
     Radius,       //!< radius
     Mass,         //!< mass
     Density,      //!< density

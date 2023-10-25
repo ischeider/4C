@@ -10,8 +10,8 @@
  *---------------------------------------------------------------------------*/
 #include "baci_particle_interaction_base.H"
 
-#include "baci_lib_function_of_time.H"
 #include "baci_lib_globalproblem.H"
+#include "baci_particle_algorithm.H"
 #include "baci_particle_engine_container.H"
 #include "baci_particle_engine_interface.H"
 #include "baci_particle_interaction_material_handler.H"
@@ -25,12 +25,7 @@ BACI_NAMESPACE_OPEN
  *---------------------------------------------------------------------------*/
 PARTICLEINTERACTION::ParticleInteractionBase::ParticleInteractionBase(
     const Epetra_Comm& comm, const Teuchos::ParameterList& params)
-    : comm_(comm),
-      myrank_(comm.MyPID()),
-      params_(params),
-      time_(0.0),
-      dt_(0.0),
-      radius_ramp_fct_number_(params.get<int>("RADIUS_RAMP_FUNCT"))
+    : comm_(comm), myrank_(comm.MyPID()), params_(params), time_(0.0), dt_(0.0)
 {
   // empty constructor
 }
@@ -77,57 +72,6 @@ void PARTICLEINTERACTION::ParticleInteractionBase::ReadRestart(
 {
   // read restart of particle interaction writer
   particleinteractionwriter_->ReadRestart(reader);
-}
-
-void PARTICLEINTERACTION::ParticleInteractionBase::PreEvaluateTimeStep()
-{
-  // scale radius and dependent quantities of particles
-  if (radius_ramp_fct_number_ > 0)
-  {
-    const double fac = DRT::Problem::Instance()
-                           ->FunctionById<DRT::UTILS::FunctionOfTime>(radius_ramp_fct_number_ - 1)
-                           .Evaluate(time_);
-
-    if (std::abs(fac - 1.0) < 1e-14) return;
-
-    // iterate over particle types
-    for (auto& particleType : particlecontainerbundle_->GetParticleTypes())
-    {
-      // get container of owned particles of current particle type
-      PARTICLEENGINE::ParticleContainer* container =
-          particlecontainerbundle_->GetSpecificContainer(particleType, PARTICLEENGINE::Owned);
-
-      // get number of particles stored in container
-      const int particlestored = container->ParticlesStored();
-
-      // no owned particles of current particle type
-      if (particlestored <= 0) continue;
-
-      // scale radius values
-      double* radius = container->GetPtrToState(PARTICLEENGINE::Radius, 0);
-      for (int i = 0; i < particlestored; ++i)
-      {
-        radius[i] *= fac;
-      }
-
-      // scale mass values
-      double* mass = container->GetPtrToState(PARTICLEENGINE::Mass, 0);
-      const double facpowthree = UTILS::Pow<3>(fac);
-      for (int i = 0; i < particlestored; ++i)
-      {
-        mass[i] *= facpowthree;
-      }
-
-      // scale inertia values (0.4 mass radius^2)
-      if (not container->HaveStoredState(PARTICLEENGINE::Inertia)) continue;
-      double* inertia = container->GetPtrToState(PARTICLEENGINE::Inertia, 0);
-      const double facpowfive = UTILS::Pow<5>(fac);
-      for (int i = 0; i < particlestored; ++i)
-      {
-        inertia[i] *= facpowfive;
-      }
-    }
-  }
 }
 
 void PARTICLEINTERACTION::ParticleInteractionBase::

@@ -29,6 +29,7 @@ namespace PARTICLEALGORITHM
   class TimInt;
   class GravityHandler;
   class ViscousDampingHandler;
+  class ParticleGrowthHandler;
 }  // namespace PARTICLEALGORITHM
 
 namespace PARTICLEINTERACTION
@@ -258,6 +259,13 @@ namespace PARTICLEALGORITHM
     void InitParticleGravity();
 
     /*!
+     * \brief init particle growth handler
+     *
+     * \author Ingo Scheider \date 10/2023
+     */
+    void InitParticleGrowth();
+
+    /*!
      * \brief init viscous damping handler
      *
      * \author Sebastian Fuchs \date 02/2019
@@ -451,6 +459,9 @@ namespace PARTICLEALGORITHM
 
     //! particle interaction
     std::unique_ptr<PARTICLEINTERACTION::ParticleInteractionBase> particleinteraction_;
+
+    //! particle growth handler
+    std::unique_ptr<PARTICLEALGORITHM::ParticleGrowthHandler> particlegrowth_;
 
     //! particle gravity handler
     std::unique_ptr<PARTICLEALGORITHM::GravityHandler> particlegravity_;

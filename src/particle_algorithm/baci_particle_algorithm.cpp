@@ -15,6 +15,7 @@
 #include "baci_io_pstream.H"
 #include "baci_lib_resulttest.H"
 #include "baci_particle_algorithm_gravity.H"
+#include "baci_particle_algorithm_growth.H"
 #include "baci_particle_algorithm_initial_field.H"
 #include "baci_particle_algorithm_input_generator.H"
 #include "baci_particle_algorithm_result_test.H"
@@ -80,6 +81,9 @@ void PARTICLEALGORITHM::ParticleAlgorithm::Init(
   // init particle gravity handler
   InitParticleGravity();
 
+  // init particle growth handler
+  InitParticleGrowth();
+
   // init viscous damping handler
   InitViscousDamping();
 
@@ -118,6 +122,9 @@ void PARTICLEALGORITHM::ParticleAlgorithm::Setup()
 
   // setup gravity handler
   if (particlegravity_) particlegravity_->Setup();
+
+  // setup particle growth handler
+  if (particlegrowth_) particlegrowth_->Setup(particleengine_);
 
   // setup viscous damping handler
   if (viscousdamping_) viscousdamping_->Setup(particleengine_);
@@ -236,6 +243,8 @@ void PARTICLEALGORITHM::ParticleAlgorithm::PreEvaluateTimeStep()
 {
   // pre evaluate time step
   if (particleinteraction_) particleinteraction_->PreEvaluateTimeStep();
+
+  if (particlegrowth_) particlegrowth_->PreEvaluateTimeStep(Time());
 }
 
 void PARTICLEALGORITHM::ParticleAlgorithm::IntegrateTimeStep()
@@ -526,6 +535,20 @@ void PARTICLEALGORITHM::ParticleAlgorithm::InitParticleGravity()
   if (particlegravity_) particlegravity_->Init(gravity);
 }
 
+void PARTICLEALGORITHM::ParticleAlgorithm::InitParticleGrowth()
+{
+  // get particle growth function
+  const int growthfunc = params_.get<int>("RADIUS_RAMP_FUNCT");
+
+  // create particle growth handler
+  if (growthfunc > 0)
+    particlegrowth_ = std::unique_ptr<PARTICLEALGORITHM::ParticleGrowthHandler>(
+        new PARTICLEALGORITHM::ParticleGrowthHandler(growthfunc));
+
+  // init particle growth handler
+  if (particlegrowth_) particlegrowth_->Init();
+}
+
 void PARTICLEALGORITHM::ParticleAlgorithm::InitViscousDamping()
 {
   // get viscous damping factor
@@ -599,6 +622,9 @@ void PARTICLEALGORITHM::ParticleAlgorithm::DetermineParticleStatesOfParticleType
   // insert rigid body handler dependent states of all particle types
   if (particlerigidbody_)
     particlerigidbody_->InsertParticleStatesOfParticleTypes(particlestatestotypes_);
+
+  // insert particlegrowth handler dependent state of all particles with growth
+  if (particlegrowth_) particlegrowth_->InsertParticleStatesOfParticleTypes(particlestatestotypes_);
 }
 
 void PARTICLEALGORITHM::ParticleAlgorithm::SetupInitialParticles()
@@ -635,6 +661,9 @@ void PARTICLEALGORITHM::ParticleAlgorithm::SetupInitialStates()
 {
   // set initial states
   if (particleinteraction_) particleinteraction_->SetInitialStates();
+
+  // initialize radius information if particle growth
+  if (particlegrowth_) particlegrowth_->SetInitialStates();
 
   // initialize rigid body mass quantities and orientation
   if (particlerigidbody_) particlerigidbody_->InitializeRigidBodyMassQuantitiesAndOrientation();

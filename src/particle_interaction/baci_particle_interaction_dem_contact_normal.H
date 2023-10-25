@@ -14,6 +14,8 @@
 /*---------------------------------------------------------------------------*
  | headers                                                                   |
  *---------------------------------------------------------------------------*/
+#include "baci_utils_function_library.H"
+
 #include <Teuchos_ParameterList.hpp>
 
 #include <memory>
@@ -234,7 +236,7 @@ namespace PARTICLEINTERACTION
     const int curve_id_;
 
     //! force distance relationship
-    const DRT::UTILS::FunctionOfScalar& force_gap_curve_;
+    const CORE::UTILS::FunctionOfScalar& force_gap_curve_;
   };
 
   class DEMContactNormalForceDistanceCurveDamp : public DEMContactNormalForceDistanceCurve,

@@ -137,9 +137,6 @@ void PARTICLEINTERACTION::ParticleInteractionDEM::SetInitialStates()
 void PARTICLEINTERACTION::ParticleInteractionDEM::PreEvaluateTimeStep()
 {
   TEUCHOS_FUNC_TIME_MONITOR("PARTICLEINTERACTION::ParticleInteractionDEM::PreEvaluateTimeStep");
-
-  // call base class pre evaluate
-  ParticleInteractionBase::PreEvaluateTimeStep();
 }
 
 void PARTICLEINTERACTION::ParticleInteractionDEM::EvaluateInteractions()
@@ -396,6 +393,7 @@ void PARTICLEINTERACTION::ParticleInteractionDEM::SetInitialRadius()
         // initialize random number generator
         DRT::Problem::Instance()->Random()->SetMeanVariance(mu, sigma);
 
+        std::cout << "mu = " << mu << ", sigma = " << sigma << std::endl;
         // iterate over particles stored in container
         for (int i = 0; i < particlestored; ++i)
         {
@@ -412,6 +410,7 @@ void PARTICLEINTERACTION::ParticleInteractionDEM::SetInitialRadius()
             radius[i] = r_max;
           else if (radius[i] < r_min)
             radius[i] = r_min;
+          std::cout << i << ": " << radius[i] << std::endl;
         }
       }
       break;

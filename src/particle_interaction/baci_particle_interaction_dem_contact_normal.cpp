@@ -11,7 +11,6 @@
 #include "baci_particle_interaction_dem_contact_normal.H"
 
 #include "baci_inpar_particle.H"
-#include "baci_lib_function_library.H"
 #include "baci_lib_globalproblem.H"
 #include "baci_particle_interaction_utils.H"
 #include "baci_utils_exceptions.H"
@@ -249,7 +248,7 @@ PARTICLEINTERACTION::DEMContactNormalForceDistanceCurve::DEMContactNormalForceDi
     : PARTICLEINTERACTION::DEMContactNormalBase(params),
       curve_id_(params_dem_.get<int>("NORMAL_CONTACT_FORCE_DIST_CURVE")),
       force_gap_curve_(
-          DRT::Problem::Instance()->FunctionById<DRT::UTILS::FunctionOfScalar>(curve_id_ - 1))
+          DRT::Problem::Instance()->FunctionById<CORE::UTILS::FunctionOfScalar>(curve_id_ - 1))
 {
   // empty constructor
 }
@@ -316,8 +315,6 @@ void PARTICLEINTERACTION::DEMContactNormalForceDistanceCurveDamp::NormalContactF
   }
 
   // evaluate normal contact force
-  double d1 = force_gap_curve_.Evaluate(gap);
-  double d2 = (d_normal * v_rel_normal * reg_fac);
   normalcontactforce = force_gap_curve_.Evaluate(gap) - (d_normal * v_rel_normal * reg_fac);
 }
 

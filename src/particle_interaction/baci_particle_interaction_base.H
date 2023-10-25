@@ -89,7 +89,7 @@ namespace PARTICLEINTERACTION
     virtual void SetInitialStates() = 0;
 
     //! pre evaluate time step
-    virtual void PreEvaluateTimeStep();
+    virtual void PreEvaluateTimeStep() = 0;
 
     //! evaluate particle interactions
     virtual void EvaluateInteractions() = 0;
@@ -168,9 +168,6 @@ namespace PARTICLEINTERACTION
 
     //! current gravity vector
     std::vector<double> gravity_;
-
-    //! radius ramp function number
-    const int radius_ramp_fct_number_;
   };
 
 }  // namespace PARTICLEINTERACTION

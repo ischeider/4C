@@ -23,6 +23,7 @@ int PARTICLEENGINE::EnumToStateDim(const enum ParticleState& state)
   {
     // scalar states
     case Radius:
+    case InitRadius:
     case Mass:
     case Density:
     case Pressure:
@@ -84,6 +85,9 @@ std::string PARTICLEENGINE::EnumToStateName(const enum ParticleState& state)
   {
     case Radius:
       name = "radius";
+      break;
+    case InitRadius:
+      name = "initial radius";
       break;
     case Mass:
       name = "mass";
