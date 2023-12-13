@@ -476,7 +476,7 @@ void INPAR::PARTICLE::SetValidParameters(Teuchos::RCP<Teuchos::ParameterList> li
   DoubleParameter("COEFF_RESTITUTION", -1.0, "coefficient of restitution", &particledyndem);
   DoubleParameter("DAMP_REG_FAC", -1.0,
       "linearly regularized damping normal force in the interval "
-      "\f$|g| < (DAMP_REG_FAC * r_{\\min})\f$",
+      "\f$|g| < (\\text{DAMP_REG_FAC} * r_{\\min})\f$",
       &particledyndem);
   BoolParameter(
       "TENSION_CUTOFF", "yes", "evaluate tension cutoff of normal contact force", &particledyndem);

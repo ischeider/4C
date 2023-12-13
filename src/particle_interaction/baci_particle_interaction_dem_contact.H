@@ -90,7 +90,7 @@ namespace PARTICLEINTERACTION
     double GetNormalContactStiffness() const;
 
     //! check critical time step (on this processor)
-    void CheckCriticalTimeStep() const;
+    double CheckCriticalTimeStep() const;
 
     //! add contact contribution to force and moment field
     void AddForceAndMomentContribution();

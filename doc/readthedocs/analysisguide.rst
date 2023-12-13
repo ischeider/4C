@@ -11,6 +11,7 @@ Analysis Guide
    problemtypes
    functions
    elements
+   particles
    boundaryconditions
    contact
    materials

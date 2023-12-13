@@ -132,6 +132,10 @@ void PARTICLEINTERACTION::ParticleInteractionDEM::SetInitialStates()
 
   // set initial inertia
   SetInitialInertia();
+
+  // check critical time step
+  double dtime_crit = contact_->CheckCriticalTimeStep();
+  std::cout << "\nInitial critical time step size: " << dtime_crit << "\n\n";
 }
 
 void PARTICLEINTERACTION::ParticleInteractionDEM::PreEvaluateTimeStep()

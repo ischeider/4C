@@ -57,19 +57,33 @@ void PARTICLEINTERACTION::DEMContactNormalLinearSpring::Setup(const double& dens
   // call base class setup
   DEMContactNormalBase::Setup(dens_max);
 
-  // calculate normal stiffness from relative penetration and other input parameters
-  if (c_ > 0.0)
-    k_normal_ = 2.0 / 3.0 * r_max_ * M_PI * dens_max * UTILS::Pow<2>(v_max_) / UTILS::Pow<2>(c_);
-
   // set critical normal contact stiffness to linear normal contact stiffness
   k_normal_crit_ = k_normal_;
+
+  // calculate normal stiffness from relative penetration and other input parameters
+  if (c_ > 0.0)
+  {
+    // if REL_PENETRATION (c_) and MAX_VELOCITY (v_max_) are given, the stiffness can be calculated
+    // as k needed to convert the kinetic energy of v_max_ to potential energy at c_
+    // mass = 4/3 pi r^3 dens_max, area = r^2
+    //
+    // Since r may vary, it is multiplied later in the function NormalContactForce
+    k_normal_ =
+        2.0 / 3.0 * M_PI * dens_max * UTILS::Pow<2>(v_max_) / UTILS::Pow<2>(c_);  // * radius
+    k_normal_crit_ = k_normal_ * r_max_;
+  }
 }
 
 void PARTICLEINTERACTION::DEMContactNormalLinearSpring::NormalContactForce(const double& gap,
     const double* radius_i, const double* radius_j, const double& v_rel_normal, const double& m_eff,
     double& normalcontactforce) const
 {
-  normalcontactforce = k_normal_ * gap;
+  double k_normal = k_normal_;
+  const double r_eff = 0.5 * (*radius_i + *radius_j);
+
+  if (c_ > 0.0) k_normal *= r_eff;
+
+  normalcontactforce = k_normal * gap;
 }
 
 void PARTICLEINTERACTION::DEMContactNormalLinearSpring::NormalPotentialEnergy(
@@ -94,8 +108,9 @@ void PARTICLEINTERACTION::DEMContactNormalLinearSpringDamp::Init()
   // call base class init
   DEMContactNormalLinearSpring::Init();
 
-  // safety checks for contact parameters
-  if (e_ < 0.0) dserror("invalid input parameter COEFF_RESTITUTION for this kind of contact law!");
+  // safety checks for contact parameters is not necessary, since damping can be calculated without
+  // e_ as well. if (e_ < 0.0) dserror("invalid input parameter COEFF_RESTITUTION for this kind of
+  // contact law!");
 }
 
 void PARTICLEINTERACTION::DEMContactNormalLinearSpringDamp::Setup(const double& dens_max)
@@ -107,32 +122,37 @@ void PARTICLEINTERACTION::DEMContactNormalLinearSpringDamp::Setup(const double& 
   if (e_ > 0.0)
   {
     const double lne = std::log(e_);
+    // this factor should include sqrt(k_normal), but k_normal may depend on radius, and is thus
+    // multiplied later in the NormalContactForce routine
     d_normal_fac_ =
-        2.0 * std::abs(lne) * std::sqrt(k_normal_ / (UTILS::Pow<2>(lne) + UTILS::Pow<2>(M_PI)));
+        2.0 * std::abs(lne) * std::sqrt(1.0 / (UTILS::Pow<2>(lne) + UTILS::Pow<2>(M_PI)));
   }
   else
-    d_normal_fac_ = 2.0 * std::sqrt(k_normal_);
+    d_normal_fac_ = 2.0;
 }
 
 void PARTICLEINTERACTION::DEMContactNormalLinearSpringDamp::NormalContactForce(const double& gap,
     const double* radius_i, const double* radius_j, const double& v_rel_normal, const double& m_eff,
     double& normalcontactforce) const
 {
+  const double r_eff = 0.5 * (*radius_i + *radius_j);
+
+  double k_normal = k_normal_;
+  // multiply normal stiffness with radius (not possible in setup)
+  if (c_ > 0.0) k_normal *= r_eff;
+
   // determine normal contact damping parameter
-  double d_normal = d_normal_fac_ * std::sqrt(m_eff);
+  double d_normal = d_normal_fac_ * std::sqrt(k_normal * m_eff);
 
   // linear regularization of damping force to reach full amplitude for g = damp_reg_fac_ * r_min
   double reg_fac = 1.0;
   if (damp_reg_fac_ > 0.0)
   {
-    double rad_min = std::min(radius_i[0], radius_j[0]);
-
-    if (std::abs(gap) < damp_reg_fac_ * rad_min)
-      reg_fac = (std::abs(gap) / (damp_reg_fac_ * rad_min));
+    if (std::abs(gap) < damp_reg_fac_ * r_eff) reg_fac = (std::abs(gap) / (damp_reg_fac_ * r_eff));
   }
 
   // evaluate normal contact force
-  normalcontactforce = (k_normal_ * gap) - (d_normal * v_rel_normal * reg_fac);
+  normalcontactforce = (k_normal * gap) - (d_normal * v_rel_normal * reg_fac);
 }
 
 PARTICLEINTERACTION::DEMContactNormalNonlinearBase::DEMContactNormalNonlinearBase(
@@ -267,7 +287,19 @@ void PARTICLEINTERACTION::DEMContactNormalForceDistanceCurve::NormalContactForce
     const double* radius_i, const double* radius_j, const double& v_rel_normal, const double& m_eff,
     double& normalcontactforce) const
 {
+  const double r_eff = 0.5 * (*radius_i + *radius_j);
+
   normalcontactforce = force_gap_curve_.Evaluate(gap);
+  // multiply normal stiffness with current radius (not possible in setup)
+  normalcontactforce *= UTILS::Pow<3>(r_eff);
+
+  /*
+
+      std::cout << "r, F, f(d), v_rel, gap, m_eff: " << r_eff << ", " << normalcontactforce << ", "
+     << force_gap_curve_.Evaluate(gap)
+                << ", " << v_rel_normal << ", " << gap
+                << ", " << m_eff << ", " << std::endl;
+  */
 }
 
 void PARTICLEINTERACTION::DEMContactNormalForceDistanceCurve::NormalPotentialEnergy(
@@ -301,21 +333,36 @@ void PARTICLEINTERACTION::DEMContactNormalForceDistanceCurveDamp::NormalContactF
     const double& gap, const double* radius_i, const double* radius_j, const double& v_rel_normal,
     const double& m_eff, double& normalcontactforce) const
 {
+  const double r_eff = 0.5 * (*radius_i + *radius_j);
+
+  double k_normal = k_normal_;
+  // multiply normal stiffness with current radius if dependent on v_max and rel_penetration (not
+  // possible in setup)
+  if (c_ > 0.0) k_normal *= r_eff;
+
   // determine normal contact damping parameter
-  double d_normal = d_normal_fac_ * std::sqrt(m_eff);
+  double d_normal = d_normal_fac_ * std::sqrt(k_normal * m_eff);
 
   // linear regularization of damping force to reach full amplitude for g = damp_reg_fac_ * r_min
   double reg_fac = 1.0;
   if (damp_reg_fac_ > 0.0)
   {
-    double rad_min = std::min(radius_i[0], radius_j[0]);
-
-    if (std::abs(gap) < damp_reg_fac_ * rad_min)
-      reg_fac = (std::abs(gap) / (damp_reg_fac_ * rad_min));
+    if (std::abs(gap) < damp_reg_fac_ * r_eff) reg_fac = (std::abs(gap) / (damp_reg_fac_ * r_eff));
   }
 
   // evaluate normal contact force
-  normalcontactforce = force_gap_curve_.Evaluate(gap) - (d_normal * v_rel_normal * reg_fac);
+  normalcontactforce = force_gap_curve_.Evaluate(gap);
+  // multiply normal stiffness with radius^3 (not possible in setup)
+  normalcontactforce *= UTILS::Pow<3>(r_eff);
+
+  normalcontactforce -= d_normal * v_rel_normal * reg_fac;
+
+  /*
+    std::cout << "r, F, f(d), v_rel, gap, m_eff, d_n: " << r_eff << ", " << normalcontactforce << ",
+    " << force_gap_curve_.Evaluate(gap)
+              << ", " << v_rel_normal << ", " << gap
+              << ", " << m_eff << ", " << d_normal << std::endl;
+  */
 }
 
 void PARTICLEINTERACTION::DEMContactNormalForceDistanceCurveDamp::NormalPotentialEnergy(

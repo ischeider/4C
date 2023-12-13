@@ -151,9 +151,9 @@ double PARTICLEINTERACTION::DEMContact::GetNormalContactStiffness() const
   return contactnormal_->GetNormalContactStiffness();
 }
 
-void PARTICLEINTERACTION::DEMContact::CheckCriticalTimeStep() const
+double PARTICLEINTERACTION::DEMContact::CheckCriticalTimeStep() const
 {
-  if (particleengineinterface_->GetNumberOfParticles() == 0) return;
+  if (particleengineinterface_->GetNumberOfParticles() == 0) return 0;
   // init value of minimum mass
   double minmass = std::numeric_limits<double>::max();
 
@@ -180,7 +180,7 @@ void PARTICLEINTERACTION::DEMContact::CheckCriticalTimeStep() const
   // get critical normal contact stiffness
   const double k_normal_crit = contactnormal_->GetCriticalNormalContactStiffness();
 
-  if (k_normal_crit == 0.0) return;
+  if (k_normal_crit == 0.0) return 0;
 
   // critical time step size based on particle-particle contact
   const double safety = 0.75;
@@ -191,6 +191,7 @@ void PARTICLEINTERACTION::DEMContact::CheckCriticalTimeStep() const
   if (dt_ > dt_crit)
     IO::cout << "Warning: time step " << dt_ << " larger than critical time step " << dt_crit << "!"
              << IO::endl;
+  return dt_crit;
 }
 
 void PARTICLEINTERACTION::DEMContact::AddForceAndMomentContribution()
