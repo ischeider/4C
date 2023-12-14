@@ -17,6 +17,8 @@
 #include "baci_particle_interaction_utils.H"
 #include "baci_utils_function_of_time.H"
 
+BACI_NAMESPACE_OPEN
+
 /*---------------------------------------------------------------------------*
  | definitions                                                               |
  *---------------------------------------------------------------------------*/
@@ -129,3 +131,6 @@ void PARTICLEALGORITHM::ParticleGrowthHandler::PreEvaluateTimeStep(double time)
     }
   }
 }
+
+
+BACI_NAMESPACE_CLOSE
