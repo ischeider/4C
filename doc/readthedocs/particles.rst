@@ -1,7 +1,15 @@
 Discrete Element Method
 =======================
 
-The Discrete Element Method (DEM) is defined by the section ``PARTICLE DYNAMIC``::
+The ``PROBLEM TYP`` particle, viz
+
+::
+
+    -------PROBLEM TYP
+    PROBLEMTYP  Particle
+
+
+enables the simulation of particle problems based on the Discrete Element Method (DEM) via the section ``PARTICLE DYNAMIC``::
 
     -------PARTICLE DYNAMIC
     INTERACTION     DEM
@@ -17,11 +25,16 @@ given in the section
     --------PARTICLE DYNAMIC/DEM
     NORMALCONTACTLAW     <algorithm>
 
-The two most prominent values for ``algorithm`` are
-a linear spring model (``NormalLinearSpring``), the Hertzian contact model (``NormalHertz``) and a nonlinear force-displacement curve (``NormalForceDistanceCurve``).
+The three most prominent values for ``algorithm`` are
+a linear spring model (``NormalLinearSpring``), the Hertzian contact model (``NormalHertz``), and a nonlinear force-displacement curve (``NormalForceDistanceCurve``).
 These algorithms may also be extended with damping, which is explained further down.
 
-The force between two particles having a relative normal velocity :math:`v_\text{rel,n}` and a distance :math:`d` is
+The force between two particles having a relative normal velocity :math:`v_\text{rel,n}` and a distance 
+
+.. math::
+    d = \lVert \mathbf{x}_i - \mathbf{x}_j \rVert_2 - (r_i + r_j) 
+
+(which becomes negative for overlap of interacting particles) is
 
 .. list-table::
     :header-rows: 1
@@ -29,40 +42,32 @@ The force between two particles having a relative normal velocity :math:`v_\text
     * - algorithm
       - force displacement relation
     * - NormalLinearSpring
-      - :math:`f_n = K_n d`
+      - :math:`f_n = k_n d`
+    * - NormalHertz
+      - :math:`f_n = k_n d \sqrt{-d}`
     * - NormalForceDistanceCurve
       - :math:`f_n = f(d)`
-    * - NormalHertz
-      - :math:`f_n = K_n d \sqrt{-d}`
 
-If the linear spring or the Hertzian model are used, :math:`K_n` is given by the parameter ``NORMAL_STIFF``.
-For the force-displacement curve, the relation :math:`f(d)` is given by the function with the number entered as ``NORMAL_CONTACT_FORCE_DIST_CURVE``.
-Another available option is the calculation of the stiffness
-from some (assumed) maximum velocity :math:`v_\max` and a maximum allowed penetration, :math:`c`.
+If the linear spring or the Hertzian model are used, the normal stiffness :math:`k_n` can either be specified with the input parameter ``NORMAL_STIFF``
+or via an estimation based on some (assumed) maximal particle velocity :math:`v_\max` (``MAX_VELOCITY``), density :math:`\rho`,
+maximal radius of the involved particles :math:`r_\max` (``MAX_RADIUS``), and a maximum allowed relative (to :math:`r_\max`) penetration :math:`c` (``REL_PENETRATION``).
 Then, the stiffness is calculated by
 
 .. math::
 
-    K_n = \frac{m_P \left( \frac{v_\max}{c}\right)^2}{A_p}
+    k_n = \frac{2}{3} r_{\max} \Pi \rho \frac{v_{\max}^2}{c^2}.
 
-with
+This calculation assumes a transfer of the complete kinetic energy of two max mass particles approaching centrally into the potential energy of the 
+spring acting as repulsive force. As the stiffness :math:`k_n` can be seen as a penalty parameter which hinders the particles to overlap 
+it is crucial to have it in a reasonable size, however the exact number is not relevant. Counterproductive large numbers for :math:`k_n` lead to small time step size requirement whereas too small numbers lead to unphysically large overlap of the particles during contact. Note: It is only relevant to keep it constant during
+the interaction process of two particles to preserve energy during the impact/restauration process.  
 
-.. math::
+Either the parameter ``NORMAL_STIFF`` or the three parameters ``MAX_VELOCITY, MAX_RADIUS, REL_PENETRATION`` are needed.
 
-    \begin{split}
-    m_P &= \frac{4}{3} \rho \pi r_\text{eff}^3 \\
-    A_p &= 2 r_\text{eff}^2 \\
-    r_\text{eff} &= 0.5 (r_i + r_j)
-    \end {split}
-
-That is, the stiffness is linear in the radius of the particle.
+In the third option using a force-displacement curve, the relation :math:`f(d)` is given by the function with the number entered as ``NORMAL_CONTACT_FORCE_DIST_CURVE``.
 
 If the force-displacement curve algorithm is used and :math:`c` has a positive value in the input file,
 the stiffness in the curve is multiplied by :math:`r_\text{eff}^3`.
-
-The values for :math:`v_\max, c` correspond to the damping parameters ``MAX_VELOCITY, REL_PENETRATION``.
-
-Thus, either the parameter ``NORMAL_STIFF`` or the two parameters ``MAX_VELOCITY, REL_PENETRATION`` are needed.
 
 .. note::
 
@@ -176,16 +181,42 @@ the regularization factor depends linearly on the ratio of distance to radius.
 Bounding Box
 -------------
 
-If one would like to have a periodic box of particles (like atoms),
-one has to describe the following in the binning strategy::
+For the neighborhood search (which strongly influences the performance of the particle problem) two input arguments need to be given
+in the binning strategy section
+
+::
 
     ---------------------BINNING STRATEGY
-    PERIODICONOFF    1 1 1
     DOMAINBOUNDINGBOX  <xmin> <ymin> <zmin> <xmax> <ymax> <zmax>
     BIN_SIZE_LOWER_BOUND <binsize>
 
+The six values in the first row define an axis-aligned cuboid which bounds the region in which particles are tracked. If a particle leaves this region,
+it is removed from the simulation. The cuboid is divided into smaller cuboids which have in each direction maximal extension of
+``binsize``. The ``binsize`` should be chosen such that it is larger than twice the maximal travel distance of a particle within a time step added by the
+interaction range of particles (e.g. their radii). In doing so, no collision event is missed. An error is thrown if this criteria is violated.
+Either the time step size can be reduced or the ``binsize`` can be enlarged to resolve the issue.
+
+Instead of specifying ``BIN_SIZE_LOWER_BOUND`` it is also possible to give the number of bins per spatial direction via
+
+::
+
+    BIN_PER_DIR <num_x_dir> <num_y_dir> <num_z_dir>
+
+such that the big cuboid is subdivided. 
+
+Note: The bins are a used for parallel distribution of the problem when  a multi-core simulation is performed.
+ 
+If a periodic box of particles is necessary, the following line can be added in the binning strategy section
+
+::
+
+    PERIODICONOFF    1 1 1
+
+The three entries' default value is ``0`` meaning no peridicity in the corresponding axis direction (:math:`x`, :math:`y`, :math:`z`).
+A ``1`` activates the periodicity in the respective spatial direction.
+
 Note that the the extension of the :ref:`DOMAINBOUNDINGBOX<binningstrategy_domainboundingbox>`
-must be at least three times of :ref:`BIN_SIZE_LOWER_BOUND<binningstrategy_bin_size_lower_bound>` in every direction.
+must be at least three times of :ref:`BIN_SIZE_LOWER_BOUND<binningstrategy_bin_size_lower_bound>` in a periodic direction.
 
 
 Output
