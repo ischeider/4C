@@ -29,7 +29,7 @@ namespace
     const double young_ = 200.0e3;
     const double v_max_ = 0.025;
 
-    const double k_normal_ = 4.0;
+    const double k_normal_per_radius_ = 4.0;
 
     DEMContactRollingViscousTest()
     {
@@ -49,7 +49,7 @@ namespace
       contactrolling_->Init();
 
       // setup rolling contact handler
-      contactrolling_->Setup(k_normal_);
+      contactrolling_->Setup(k_normal_per_radius_);
     }
     // note: the public functions Init() and Setup() of class DEMContactRollingViscous are
     // called in the constructor and thus implicitly tested by all following unittests
@@ -200,7 +200,7 @@ namespace
     const double nue_ = 0.4;
     const double mu_rolling_ = 0.2;
 
-    const double k_normal_ = 4.0;
+    const double k_normal_per_radius_ = 4.0;
 
     DEMContactRollingCoulombTest()
     {
@@ -217,7 +217,7 @@ namespace
       contactrolling_->Init();
 
       // setup rolling contact handler
-      contactrolling_->Setup(k_normal_);
+      contactrolling_->Setup(k_normal_per_radius_);
     }
     // note: the public functions Init() and Setup() of class DEMContactRollingViscous are
     // called in the constructor and thus implicitly tested by all following unittests
@@ -389,7 +389,7 @@ namespace
     gap_rolling[1] = 0.05;
     gap_rolling[2] = -0.25;
 
-    const double k_rolling = (1.0 - nue_) / (1.0 - 0.5 * nue_) * k_normal_;
+    const double k_rolling = (1.0 - nue_) / (1.0 - 0.5 * nue_) * k_normal_per_radius_;
     const double rollingpotentialenergy_ref =
         0.5 * k_rolling * PARTICLEINTERACTION::UTILS::VecDot(gap_rolling, gap_rolling);
 

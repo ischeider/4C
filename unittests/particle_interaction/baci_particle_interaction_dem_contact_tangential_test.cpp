@@ -26,7 +26,7 @@ namespace
     const double nue_ = 0.4;
     const double mu_tangential_ = 0.2;
 
-    const double k_normal_ = 4.0;
+    const double k_normal_per_radius_ = 4.0;
 
     DEMContactTangentialLinearSpringDampTest()
     {
@@ -44,7 +44,7 @@ namespace
       contacttangential_->Init();
 
       // setup tangential contact handler
-      contacttangential_->Setup(k_normal_);
+      contacttangential_->Setup(k_normal_per_radius_);
     }
     // note: the public functions Init() and Setup() of class DEMContactTangentialLinearSpringDamp
     // are called in the constructor and thus implicitly tested by all following unittests
@@ -131,7 +131,7 @@ namespace
     gap_tangential[1] = 0.05;
     gap_tangential[2] = -0.25;
 
-    const double k_tangential = (1.0 - nue_) / (1.0 - 0.5 * nue_) * k_normal_;
+    const double k_tangential = (1.0 - nue_) / (1.0 - 0.5 * nue_) * k_normal_per_radius_;
     const double tangentialpotentialenergy_ref =
         0.5 * k_tangential * PARTICLEINTERACTION::UTILS::VecDot(gap_tangential, gap_tangential);
 

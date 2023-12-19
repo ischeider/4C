@@ -157,7 +157,7 @@ void PARTICLEINTERACTION::ParticleInteractionDEM::EvaluateInteractions()
   if (adhesion_) neighborpairs_->EvaluateNeighborPairsAdhesion(adhesion_->GetAdhesionDistance());
 
   // check critical time step
-  contact_->CheckCriticalTimeStep();
+  // contact_->CheckCriticalTimeStep();
 
   // add contact contribution to force and moment field
   contact_->AddForceAndMomentContribution();

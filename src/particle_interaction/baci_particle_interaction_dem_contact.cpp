@@ -155,7 +155,8 @@ double PARTICLEINTERACTION::DEMContact::CheckCriticalTimeStep() const
 {
   if (particleengineinterface_->GetNumberOfParticles() == 0) return 0;
   // init value of minimum mass
-  double minmass = std::numeric_limits<double>::max();
+  double min_mass = std::numeric_limits<double>::max();
+  double min_radius = std::numeric_limits<double>::max();
 
   // iterate over particle types
   for (const auto& type_i : particlecontainerbundle_->GetParticleTypes())
@@ -171,21 +172,23 @@ double PARTICLEINTERACTION::DEMContact::CheckCriticalTimeStep() const
     if (particlestored <= 0) continue;
 
     // get minimum stored value of state
-    double currminmass = container->GetMinValueOfState(PARTICLEENGINE::Mass);
+    double current_min_mass = container->GetMinValueOfState(PARTICLEENGINE::Mass);
+    double current_min_radius = container->GetMinValueOfState(PARTICLEENGINE::Radius);
 
     // update value of minimum mass
-    minmass = std::min(minmass, currminmass);
+    min_mass = std::min(min_mass, current_min_mass);
+    min_radius = std::min(min_radius, current_min_radius);
   }
 
   // get critical normal contact stiffness
-  const double k_normal_crit = contactnormal_->GetCriticalNormalContactStiffness();
+  const double k_normal_crit = contactnormal_->GetCriticalNormalContactStiffness() * min_radius;
 
   if (k_normal_crit == 0.0) return 0;
 
   // critical time step size based on particle-particle contact
   const double safety = 0.75;
   const double factor = contacttangential_ ? 0.22 : 0.34;
-  const double dt_crit = safety * factor * std::sqrt(minmass / k_normal_crit);
+  const double dt_crit = safety * factor * std::sqrt(min_mass / k_normal_crit);
 
   // checks time step
   if (dt_ > dt_crit)
@@ -396,6 +399,7 @@ void PARTICLEINTERACTION::DEMContact::EvaluateParticleContact()
   // rolling contact friction coefficient
   const double mu_rolling = contactrolling_ ? params_dem_.get<double>("FRICT_COEFF_ROLL") : 0.0;
 
+  double dt_crit = 1.e5;
   // iterate over particle pairs
   for (const auto& particlepair : neighborpairs_->GetRefToParticlePairData())
   {
@@ -425,6 +429,7 @@ void PARTICLEINTERACTION::DEMContact::EvaluateParticleContact()
     const double* vel_i = container_i->GetPtrToState(PARTICLEENGINE::Velocity, particle_i);
     const double* rad_i = container_i->GetPtrToState(PARTICLEENGINE::Radius, particle_i);
     double* force_i = container_i->GetPtrToState(PARTICLEENGINE::Force, particle_i);
+    double* mass_i = container_i->GetPtrToState(PARTICLEENGINE::Mass, particle_i);
 
     const double* angvel_i = nullptr;
     double* moment_i = nullptr;
@@ -437,6 +442,7 @@ void PARTICLEINTERACTION::DEMContact::EvaluateParticleContact()
     const double* vel_j = container_j->GetPtrToState(PARTICLEENGINE::Velocity, particle_j);
     const double* rad_j = container_j->GetPtrToState(PARTICLEENGINE::Radius, particle_j);
     double* force_j = container_j->GetPtrToState(PARTICLEENGINE::Force, particle_j);
+    double* mass_j = container_j->GetPtrToState(PARTICLEENGINE::Mass, particle_j);
 
     const double* angvel_j = nullptr;
     double* moment_j = nullptr;
@@ -475,14 +481,8 @@ void PARTICLEINTERACTION::DEMContact::EvaluateParticleContact()
     // calculate normal contact force
     double normalcontactforce(0.0);
 
-    const double r_eff = 0.5 * (*rad_i + *rad_j);
-    double k_normal = contactnormal_->GetNormalContactStiffness();
-    // multiply normal stiffness with current radius if dependent on v_max and rel_penetration (not
-    // possible in setup)
-    if (contactnormal_->GetRelativePenetration() > 0.0) k_normal *= r_eff;
-
-    contactnormal_->NormalContactForce(particlepair.gap_, r_eff, k_normal, vel_rel_normal,
-        particlepair.m_eff_, normalcontactforce);
+    contactnormal_->NormalContactForce(
+        particlepair.gap_, rad_i, rad_j, vel_rel_normal, particlepair.m_eff_, normalcontactforce);
 
     // evaluate tension cutoff of normal contact force
     if (tension_cutoff_) normalcontactforce = std::min(normalcontactforce, 0.0);
@@ -593,7 +593,21 @@ void PARTICLEINTERACTION::DEMContact::EvaluateParticleContact()
       // add rolling contact moment contribution
       UTILS::VecAdd(moment_i, rollingcontactmoment);
       if (status_j == PARTICLEENGINE::Owned) UTILS::VecSub(moment_j, rollingcontactmoment);
+
+      // check critical time step
+      const double safety = 0.75;
+      const double factor = contacttangential_ ? 0.22 : 0.34;
+      const double minmass_per_radius = std::min(*mass_i / *rad_i, *mass_j / *rad_j);
+      const double dt_crit_ij =
+          safety * factor *
+          std::sqrt(minmass_per_radius / contactnormal_->GetNormalContactStiffness());
+      dt_crit = std::min(dt_crit, dt_crit_ij);
     }
+
+    // checks time step
+    if (dt_ > dt_crit)
+      IO::cout << "Warning: time step " << dt_ << " larger than critical time step " << dt_crit
+               << "!" << IO::endl;
   }
 }
 
@@ -712,9 +726,6 @@ void PARTICLEINTERACTION::DEMContact::EvaluateParticleWallContact()
       if (contactrolling_) mu_rolling = particlewallmaterial->MuRolling();
     }
 
-    // declare zero radius for wall contact point j
-    const double rad_j = 0.0;
-
     // velocity of wall contact point j
     double vel_j[3] = {0.0, 0.0, 0.0};
 
@@ -742,15 +753,10 @@ void PARTICLEINTERACTION::DEMContact::EvaluateParticleWallContact()
     // magnitude of relative velocity in normal direction
     const double vel_rel_normal = UTILS::VecDot(vel_rel, particlewallpair.e_ji_);
 
-    double k_normal = contactnormal_->GetNormalContactStiffness();
-    // multiply normal stiffness with current radius if dependent on v_max and rel_penetration (not
-    // possible in setup)
-    if (contactnormal_->GetRelativePenetration() > 0.0) k_normal *= *rad_i;
-
     // calculate normal contact force
     double normalcontactforce(0.0);
     contactnormal_->NormalContactForce(
-        particlewallpair.gap_, *rad_i, k_normal, vel_rel_normal, mass_i[0], normalcontactforce);
+        particlewallpair.gap_, rad_i, rad_i, vel_rel_normal, mass_i[0], normalcontactforce);
 
     // evaluate tension cutoff of normal contact force
     if (tension_cutoff_) normalcontactforce = std::min(normalcontactforce, 0.0);
@@ -922,9 +928,13 @@ void PARTICLEINTERACTION::DEMContact::EvaluateParticleElasticPotentialEnergy(
     const int* globalid_i = container_i->GetPtrToGlobalID(particle_i);
     const int* globalid_j = container_j->GetPtrToGlobalID(particle_j);
 
+    // get radii of particles
+    const double* rad_i = container_j->GetPtrToState(PARTICLEENGINE::Radius, particle_i);
+    const double* rad_j = container_j->GetPtrToState(PARTICLEENGINE::Radius, particle_j);
+
     // calculate normal potential energy
     double normalpotentialenergy(0.0);
-    contactnormal_->NormalPotentialEnergy(particlepair.gap_, normalpotentialenergy);
+    contactnormal_->NormalPotentialEnergy(particlepair.gap_, rad_i, rad_j, normalpotentialenergy);
 
     // add normal potential energy contribution
     elasticpotentialenergy += 0.5 * normalpotentialenergy;
@@ -1005,9 +1015,14 @@ void PARTICLEINTERACTION::DEMContact::EvaluateParticleWallElasticPotentialEnergy
     // get pointer to column wall element
     DRT::Element* ele = particlewallpair.ele_;
 
+
+    // get radii of particles
+    const double* rad_i = container_i->GetPtrToState(PARTICLEENGINE::Radius, particle_i);
+
     // calculate normal potential energy
     double normalpotentialenergy(0.0);
-    contactnormal_->NormalPotentialEnergy(particlewallpair.gap_, normalpotentialenergy);
+    contactnormal_->NormalPotentialEnergy(
+        particlewallpair.gap_, rad_i, rad_i, normalpotentialenergy);
 
     // add normal potential energy contribution
     elasticpotentialenergy += normalpotentialenergy;

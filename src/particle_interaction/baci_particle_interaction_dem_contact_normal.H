@@ -54,7 +54,7 @@ namespace PARTICLEINTERACTION
     virtual void Setup(const double& dens_max);
 
     //! get normal contact stiffness
-    virtual double GetNormalContactStiffness() const final { return k_normal_; };
+    virtual double GetNormalContactStiffness() const final { return k_normal_per_radius_; };
 
     //! get critical normal contact stiffness
     virtual double GetCriticalNormalContactStiffness() const final { return k_normal_crit_; };
@@ -63,11 +63,13 @@ namespace PARTICLEINTERACTION
     virtual double GetRelativePenetration() const final { return c_; };
 
     //! evaluate normal contact force
-    virtual void NormalContactForce(const double& gap, const double radius, const double k_normal,
-        const double& v_rel_normal, const double& m_eff, double& normalcontactforce) const = 0;
+    virtual void NormalContactForce(const double& gap, const double* radius_i,
+        const double* radius_j, const double& v_rel_normal, const double& m_eff,
+        double& normalcontactforce) const = 0;
 
     //! evaluate normal potential energy
-    virtual void NormalPotentialEnergy(const double& gap, double& normalpotentialenergy) const = 0;
+    virtual void NormalPotentialEnergy(const double& gap, const double* radius_i,
+        const double* radius_j, double& normalpotentialenergy) const = 0;
 
    protected:
     //! discrete element method parameter list
@@ -83,7 +85,7 @@ namespace PARTICLEINTERACTION
     const double c_;
 
     //! normal contact stiffness
-    double k_normal_;
+    double k_normal_per_radius_;
 
     //! critical normal contact stiffness
     double k_normal_crit_;
@@ -99,11 +101,12 @@ namespace PARTICLEINTERACTION
     void Setup(const double& dens_max) override;
 
     //! evaluate normal contact force
-    void NormalContactForce(const double& gap, const double radius, const double k_normal,
+    void NormalContactForce(const double& gap, const double* radius_i, const double* radius_j,
         const double& v_rel_normal, const double& m_eff, double& normalcontactforce) const override;
 
     //! evaluate normal potential energy
-    void NormalPotentialEnergy(const double& gap, double& normalpotentialenergy) const override;
+    void NormalPotentialEnergy(const double& gap, const double* radius_i, const double* radius_j,
+        double& normalpotentialenergy) const override;
   };
 
   class DEMContactNormalLinearSpringDamp : public DEMContactNormalLinearSpring
@@ -119,7 +122,7 @@ namespace PARTICLEINTERACTION
     void Setup(const double& dens_max) override;
 
     //! evaluate normal contact force
-    void NormalContactForce(const double& gap, const double radius, const double k_normal,
+    void NormalContactForce(const double& gap, const double* radius_i, const double* radius_j,
         const double& v_rel_normal, const double& m_eff, double& normalcontactforce) const override;
 
    protected:
@@ -143,12 +146,13 @@ namespace PARTICLEINTERACTION
     void Setup(const double& dens_max) override;
 
     //! evaluate normal contact force
-    void NormalContactForce(const double& gap, const double radius, const double k_normal,
+    void NormalContactForce(const double& gap, const double* radius_i, const double* radius_j,
         const double& v_rel_normal, const double& m_eff,
         double& normalcontactforce) const override = 0;
 
     //! evaluate normal potential energy
-    void NormalPotentialEnergy(const double& gap, double& normalpotentialenergy) const override;
+    void NormalPotentialEnergy(const double& gap, const double* radius_i, const double* radius_j,
+        double& normalpotentialenergy) const override;
   };
 
   class DEMContactNormalHertz : public DEMContactNormalNonlinearBase
@@ -158,7 +162,7 @@ namespace PARTICLEINTERACTION
     explicit DEMContactNormalHertz(const Teuchos::ParameterList& params);
 
     //! evaluate normal contact force
-    void NormalContactForce(const double& gap, const double radius, const double k_normal,
+    void NormalContactForce(const double& gap, const double* radius_i, const double* radius_j,
         const double& v_rel_normal, const double& m_eff, double& normalcontactforce) const override;
   };
 
@@ -172,7 +176,7 @@ namespace PARTICLEINTERACTION
     void Init() override;
 
     //! evaluate normal contact force
-    void NormalContactForce(const double& gap, const double radius, const double k_normal,
+    void NormalContactForce(const double& gap, const double* radius_i, const double* radius_j,
         const double& v_rel_normal, const double& m_eff,
         double& normalcontactforce) const override = 0;
 
@@ -188,7 +192,7 @@ namespace PARTICLEINTERACTION
     explicit DEMContactNormalLeeHerrmann(const Teuchos::ParameterList& params);
 
     //! evaluate normal contact force
-    void NormalContactForce(const double& gap, const double radius, const double k_normal,
+    void NormalContactForce(const double& gap, const double* radius_i, const double* radius_j,
         const double& v_rel_normal, const double& m_eff, double& normalcontactforce) const override;
   };
 
@@ -199,7 +203,7 @@ namespace PARTICLEINTERACTION
     explicit DEMContactNormalKuwabaraKono(const Teuchos::ParameterList& params);
 
     //! evaluate normal contact force
-    void NormalContactForce(const double& gap, const double radius, const double k_normal,
+    void NormalContactForce(const double& gap, const double* radius_i, const double* radius_j,
         const double& v_rel_normal, const double& m_eff, double& normalcontactforce) const override;
   };
 
@@ -210,7 +214,7 @@ namespace PARTICLEINTERACTION
     explicit DEMContactNormalTsuji(const Teuchos::ParameterList& params);
 
     //! evaluate normal contact force
-    void NormalContactForce(const double& gap, const double radius, const double k_normal,
+    void NormalContactForce(const double& gap, const double* radius_i, const double* radius_j,
         const double& v_rel_normal, const double& m_eff, double& normalcontactforce) const override;
   };
 
@@ -227,11 +231,12 @@ namespace PARTICLEINTERACTION
     void Setup(const double& dens_max) const;
 
     //! evaluate normal contact force
-    void NormalContactForce(const double& gap, const double radius, const double k_normal,
+    void NormalContactForce(const double& gap, const double* radius_i, const double* radius_j,
         const double& v_rel_normal, const double& m_eff, double& normalcontactforce) const override;
 
     //! evaluate normal potential energy
-    void NormalPotentialEnergy(const double& gap, double& normalpotentialenergy) const override;
+    void NormalPotentialEnergy(const double& gap, const double* radius_i, const double* radius_j,
+        double& normalpotentialenergy) const override;
 
    protected:
     //! curve id which describes force distance relationship
@@ -255,11 +260,12 @@ namespace PARTICLEINTERACTION
     void Setup(const double& dens_max) override;
 
     //! evaluate normal contact force
-    void NormalContactForce(const double& gap, const double radius, const double k_normal,
+    void NormalContactForce(const double& gap, const double* radius_i, const double* radius_j,
         const double& v_rel_normal, const double& m_eff, double& normalcontactforce) const override;
 
     //! evaluate normal potential energy
-    void NormalPotentialEnergy(const double& gap, double& normalpotentialenergy) const override;
+    void NormalPotentialEnergy(const double& gap, const double* radius_i, const double* radius_j,
+        double& normalpotentialenergy) const override;
   };
 
 }  // namespace PARTICLEINTERACTION
