@@ -474,8 +474,15 @@ void PARTICLEINTERACTION::DEMContact::EvaluateParticleContact()
 
     // calculate normal contact force
     double normalcontactforce(0.0);
-    contactnormal_->NormalContactForce(
-        particlepair.gap_, rad_i, rad_j, vel_rel_normal, particlepair.m_eff_, normalcontactforce);
+
+    const double r_eff = 0.5 * (*rad_i + *rad_j);
+    double k_normal = contactnormal_->GetNormalContactStiffness();
+    // multiply normal stiffness with current radius if dependent on v_max and rel_penetration (not
+    // possible in setup)
+    if (contactnormal_->GetRelativePenetration() > 0.0) k_normal *= r_eff;
+
+    contactnormal_->NormalContactForce(particlepair.gap_, r_eff, k_normal, vel_rel_normal,
+        particlepair.m_eff_, normalcontactforce);
 
     // evaluate tension cutoff of normal contact force
     if (tension_cutoff_) normalcontactforce = std::min(normalcontactforce, 0.0);
@@ -735,10 +742,15 @@ void PARTICLEINTERACTION::DEMContact::EvaluateParticleWallContact()
     // magnitude of relative velocity in normal direction
     const double vel_rel_normal = UTILS::VecDot(vel_rel, particlewallpair.e_ji_);
 
+    double k_normal = contactnormal_->GetNormalContactStiffness();
+    // multiply normal stiffness with current radius if dependent on v_max and rel_penetration (not
+    // possible in setup)
+    if (contactnormal_->GetRelativePenetration() > 0.0) k_normal *= *rad_i;
+
     // calculate normal contact force
     double normalcontactforce(0.0);
     contactnormal_->NormalContactForce(
-        particlewallpair.gap_, rad_i, &rad_j, vel_rel_normal, mass_i[0], normalcontactforce);
+        particlewallpair.gap_, *rad_i, k_normal, vel_rel_normal, mass_i[0], normalcontactforce);
 
     // evaluate tension cutoff of normal contact force
     if (tension_cutoff_) normalcontactforce = std::min(normalcontactforce, 0.0);

@@ -35,6 +35,7 @@
 #include "baci_particle_wall_result_test.H"
 #include "baci_utils_exceptions.H"
 
+#include <boost/format.hpp>
 #include <Teuchos_TimeMonitor.hpp>
 
 BACI_NAMESPACE_OPEN
@@ -829,7 +830,8 @@ void PARTICLEALGORITHM::ParticleAlgorithm::GetMaxParticlePositionIncrement(
 
   // bin size safety check
   if (maxpositionincrement > particleengine_->MinBinSize())
-    dserror("a particle traveled more than one bin on this processor!");
+    dserror("a particle traveled more than one bin (" + std::to_string(maxpositionincrement) +
+            " > " + std::to_string(particleengine_->MinBinSize()) + ") on this processor!");
 
   // get maximum particle position increment on all processors
   Comm().MaxAll(&maxpositionincrement, &allprocmaxpositionincrement, 1);

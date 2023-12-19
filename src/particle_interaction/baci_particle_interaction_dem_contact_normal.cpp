@@ -75,14 +75,9 @@ void PARTICLEINTERACTION::DEMContactNormalLinearSpring::Setup(const double& dens
 }
 
 void PARTICLEINTERACTION::DEMContactNormalLinearSpring::NormalContactForce(const double& gap,
-    const double* radius_i, const double* radius_j, const double& v_rel_normal, const double& m_eff,
+    const double radius, const double k_normal, const double& v_rel_normal, const double& m_eff,
     double& normalcontactforce) const
 {
-  double k_normal = k_normal_;
-  const double r_eff = 0.5 * (*radius_i + *radius_j);
-
-  if (c_ > 0.0) k_normal *= r_eff;
-
   normalcontactforce = k_normal * gap;
 }
 
@@ -132,23 +127,18 @@ void PARTICLEINTERACTION::DEMContactNormalLinearSpringDamp::Setup(const double& 
 }
 
 void PARTICLEINTERACTION::DEMContactNormalLinearSpringDamp::NormalContactForce(const double& gap,
-    const double* radius_i, const double* radius_j, const double& v_rel_normal, const double& m_eff,
+    const double radius, const double k_normal, const double& v_rel_normal, const double& m_eff,
     double& normalcontactforce) const
 {
-  const double r_eff = 0.5 * (*radius_i + *radius_j);
-
-  double k_normal = k_normal_;
-  // multiply normal stiffness with radius (not possible in setup)
-  if (c_ > 0.0) k_normal *= r_eff;
-
   // determine normal contact damping parameter
-  double d_normal = d_normal_fac_ * std::sqrt(k_normal * m_eff);
+  const double d_normal = d_normal_fac_ * std::sqrt(k_normal * m_eff);
 
   // linear regularization of damping force to reach full amplitude for g = damp_reg_fac_ * r_min
   double reg_fac = 1.0;
   if (damp_reg_fac_ > 0.0)
   {
-    if (std::abs(gap) < damp_reg_fac_ * r_eff) reg_fac = (std::abs(gap) / (damp_reg_fac_ * r_eff));
+    if (std::abs(gap) < damp_reg_fac_ * radius)
+      reg_fac = (std::abs(gap) / (damp_reg_fac_ * radius));
   }
 
   // evaluate normal contact force
@@ -196,7 +186,7 @@ PARTICLEINTERACTION::DEMContactNormalHertz::DEMContactNormalHertz(
 }
 
 void PARTICLEINTERACTION::DEMContactNormalHertz::NormalContactForce(const double& gap,
-    const double* radius_i, const double* radius_j, const double& v_rel_normal, const double& m_eff,
+    const double radius, const double k_normal, const double& v_rel_normal, const double& m_eff,
     double& normalcontactforce) const
 {
   normalcontactforce = -k_normal_ * (-gap) * std::sqrt(-gap);
@@ -227,7 +217,7 @@ PARTICLEINTERACTION::DEMContactNormalLeeHerrmann::DEMContactNormalLeeHerrmann(
 }
 
 void PARTICLEINTERACTION::DEMContactNormalLeeHerrmann::NormalContactForce(const double& gap,
-    const double* radius_i, const double* radius_j, const double& v_rel_normal, const double& m_eff,
+    const double radius, const double k_normal, const double& v_rel_normal, const double& m_eff,
     double& normalcontactforce) const
 {
   normalcontactforce = -k_normal_ * (-gap) * std::sqrt(-gap) - m_eff * d_normal_ * v_rel_normal;
@@ -241,7 +231,7 @@ PARTICLEINTERACTION::DEMContactNormalKuwabaraKono::DEMContactNormalKuwabaraKono(
 }
 
 void PARTICLEINTERACTION::DEMContactNormalKuwabaraKono::NormalContactForce(const double& gap,
-    const double* radius_i, const double* radius_j, const double& v_rel_normal, const double& m_eff,
+    const double radius, const double k_normal, const double& v_rel_normal, const double& m_eff,
     double& normalcontactforce) const
 {
   normalcontactforce =
@@ -256,7 +246,7 @@ PARTICLEINTERACTION::DEMContactNormalTsuji::DEMContactNormalTsuji(
 }
 
 void PARTICLEINTERACTION::DEMContactNormalTsuji::NormalContactForce(const double& gap,
-    const double* radius_i, const double* radius_j, const double& v_rel_normal, const double& m_eff,
+    const double radius, const double k_normal, const double& v_rel_normal, const double& m_eff,
     double& normalcontactforce) const
 {
   normalcontactforce =
@@ -284,14 +274,12 @@ void PARTICLEINTERACTION::DEMContactNormalForceDistanceCurve::Setup(const double
 }
 
 void PARTICLEINTERACTION::DEMContactNormalForceDistanceCurve::NormalContactForce(const double& gap,
-    const double* radius_i, const double* radius_j, const double& v_rel_normal, const double& m_eff,
+    const double radius, const double k_normal, const double& v_rel_normal, const double& m_eff,
     double& normalcontactforce) const
 {
-  const double r_eff = 0.5 * (*radius_i + *radius_j);
-
   normalcontactforce = force_gap_curve_.Evaluate(gap);
   // multiply normal stiffness with current radius (not possible in setup)
-  normalcontactforce *= UTILS::Pow<3>(r_eff);
+  normalcontactforce *= radius;
 
   /*
 
@@ -330,30 +318,24 @@ void PARTICLEINTERACTION::DEMContactNormalForceDistanceCurveDamp::Setup(const do
 }
 
 void PARTICLEINTERACTION::DEMContactNormalForceDistanceCurveDamp::NormalContactForce(
-    const double& gap, const double* radius_i, const double* radius_j, const double& v_rel_normal,
+    const double& gap, const double radius, const double k_normal, const double& v_rel_normal,
     const double& m_eff, double& normalcontactforce) const
 {
-  const double r_eff = 0.5 * (*radius_i + *radius_j);
-
-  double k_normal = k_normal_;
-  // multiply normal stiffness with current radius if dependent on v_max and rel_penetration (not
-  // possible in setup)
-  if (c_ > 0.0) k_normal *= r_eff;
-
   // determine normal contact damping parameter
-  double d_normal = d_normal_fac_ * std::sqrt(k_normal * m_eff);
+  const double d_normal = d_normal_fac_ * std::sqrt(k_normal * m_eff);
 
   // linear regularization of damping force to reach full amplitude for g = damp_reg_fac_ * r_min
   double reg_fac = 1.0;
   if (damp_reg_fac_ > 0.0)
   {
-    if (std::abs(gap) < damp_reg_fac_ * r_eff) reg_fac = (std::abs(gap) / (damp_reg_fac_ * r_eff));
+    if (std::abs(gap) < damp_reg_fac_ * radius)
+      reg_fac = (std::abs(gap) / (damp_reg_fac_ * radius));
   }
 
   // evaluate normal contact force
   normalcontactforce = force_gap_curve_.Evaluate(gap);
-  // multiply normal stiffness with radius^3 (not possible in setup)
-  normalcontactforce *= UTILS::Pow<3>(r_eff);
+  // multiply normal stiffness with radius (not possible in setup)
+  normalcontactforce *= radius;
 
   normalcontactforce -= d_normal * v_rel_normal * reg_fac;
 

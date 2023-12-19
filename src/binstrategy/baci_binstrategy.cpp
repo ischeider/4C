@@ -79,7 +79,6 @@ void BINSTRATEGY::BinningStrategy::Init(
       DRT::Problem::Instance()->BinningStrategyParams();
 
   // try to read valid input
-  bool feasibleboxinput = true;
   domain_bounding_box_corner_positions_.PutScalar(1.0e12);
   // get bounding box specified in the input file
   std::istringstream xaabbstream(
@@ -98,10 +97,7 @@ void BINSTRATEGY::BinningStrategy::Init(
         dserror("specify six values for bounding box in three dimensional problem. Fix input file");
     }
   }
-
-  for (int col = 0; col < 2; ++col)
-    for (int row = 0; row < 3; ++row)
-      if (domain_bounding_box_corner_positions_(row, col) > 1.0e11) feasibleboxinput = false;
+  bool feasibleboxinput = domain_bounding_box_corner_positions_.MaxValue() < 1.0e11;
 
   // get number of bins per direction
   bool feasiblebininput = true;
@@ -117,7 +113,7 @@ void BINSTRATEGY::BinningStrategy::Init(
     }
     else
       dserror(
-          "You need to specify three figures for BIN_PER_DIR in input file for three dimensional "
+          "You need to specify three values for BIN_PER_DIR in input file for three dimensional "
           "problem. ");
   }
 
@@ -144,12 +140,14 @@ void BINSTRATEGY::BinningStrategy::Init(
     ComputeMinBinningDomainContainingAllElementsOfMultipleDiscrets(
         discret, disnp, domain_bounding_box_corner_positions_, bin_size_lower_bound_ < 0.0);
   }
-  else if (bin_size_lower_bound_ < 0.0)
-  {
-    if (discret.size() == 0) dserror("We need a discretization at this point.");
-    bin_size_lower_bound_ =
-        ComputeLowerBoundForBinSizeAsMaxEdgeLengthOfAABBOfLargestEle(discret, disnp);
-  }
+  /*
+    else if (bin_size_lower_bound_ < 0.0)
+    {
+      if (discret.size() == 0) dserror("We need a discretization at this point.");
+      bin_size_lower_bound_ =
+          ComputeLowerBoundForBinSizeAsMaxEdgeLengthOfAABBOfLargestEle(discret, disnp);
+    }
+  */
 
   // init binning domain edge length
   for (int idim = 0; idim < 3; ++idim)
