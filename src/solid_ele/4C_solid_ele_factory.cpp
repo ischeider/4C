@@ -274,7 +274,7 @@ Discret::Elements::SolidCalcVariant<dim> Discret::Elements::create_solid_calcula
           {
             return typename SolidCalculationFormulation<celltype_c, kinemtype_c, eletech_c,
                 prestress_tech_c>::type(integration_rules, element_properties.reference_thickness,
-                element_properties.plane_assumption);
+                element_properties.plane_assumption, kinemtype_c);
           }
           else
           {

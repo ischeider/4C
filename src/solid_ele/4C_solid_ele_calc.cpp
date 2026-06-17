@@ -89,6 +89,29 @@ namespace
 
     return cauchy_n_dir;
   }
+
+  template <Core::FE::CellType celltype>
+  Discret::Elements::OutOfPlaneKinematics compute_out_of_plane_kinematics(
+      const Discret::Elements::ElementProperties<celltype>& element_properties,
+      const Discret::Elements::ElementNodes<celltype>& nodal_coordinates,
+      const Discret::Elements::ShapeFunctionsAndDerivatives<celltype>& shape_functions,
+      const Core::LinAlg::Tensor<double, Core::FE::dim<celltype>>& gp_ref_coord)
+  {
+    if constexpr (Core::FE::dim<celltype> == 2)
+    {
+      if (element_properties.plane_assumption == Discret::Elements::PlaneAssumption::axisymmetric)
+      {
+        const double reference_radius = gp_ref_coord(0);
+        double radial_displacement = 0.0;
+        for (std::size_t i = 0; i < Core::FE::num_nodes(celltype); ++i)
+          radial_displacement +=
+              nodal_coordinates.displacements(0, i) * shape_functions.shapefunctions_(i);
+        return Discret::Elements::compute_axisymmetric_out_of_plane(
+            element_properties.kintype, reference_radius, radial_displacement);
+      }
+    }
+    return {};
+  }
 }  // namespace
 
 template <Core::FE::CellType celltype, typename ElementFormulation>
@@ -107,14 +130,16 @@ Discret::Elements::SolidEleCalc<celltype, ElementFormulation>::SolidEleCalc(
 template <Core::FE::CellType celltype, typename ElementFormulation>
 Discret::Elements::SolidEleCalc<celltype, ElementFormulation>::SolidEleCalc(
     SolidIntegrationRules<Core::FE::dim<celltype>> integration_rules,
-    const double reference_thickness, const Discret::Elements::PlaneAssumption plane_assumption)
+    const double reference_thickness, const Discret::Elements::PlaneAssumption plane_assumption,
+    const Inpar::Solid::KinemType kintype)
   requires(Core::FE::dim<celltype> == 2)
     : stiffness_matrix_integration_(
           Core::FE::create_gauss_integration<celltype>(integration_rules.rule_residuum)),
       mass_matrix_integration_(
           Core::FE::create_gauss_integration<celltype>(integration_rules.rule_mass)),
-      element_properties_(
-          {.reference_thickness = reference_thickness, .plane_assumption = plane_assumption})
+      element_properties_({.reference_thickness = reference_thickness,
+          .plane_assumption = plane_assumption,
+          .kintype = kintype})
 
 {
   Discret::Elements::resize_gp_history(history_data_, stiffness_matrix_integration_.num_points());
@@ -206,9 +231,11 @@ void Discret::Elements::SolidEleCalc<celltype,
                   .time_step_size = time_step_size,
                   .xi = &xi,
                   .ref_coords = &gp_ref_coord};
+              const OutOfPlaneKinematics out_of_plane = compute_out_of_plane_kinematics<celltype>(
+                  element_properties_, nodal_coordinates, shape_functions, gp_ref_coord);
               const Stress<celltype> stress =
                   evaluate_material_stress<celltype>(solid_material, element_properties_,
-                      deformation_gradient, gl_strain, params, context, gp, ele.id());
+                      deformation_gradient, gl_strain, params, context, gp, ele.id(), out_of_plane);
 
               if constexpr (has_condensed_contribution<ElementFormulation>)
               {
@@ -228,6 +255,18 @@ void Discret::Elements::SolidEleCalc<celltype,
                 add_stiffness_matrix<ElementFormulation, celltype>(jacobian_mapping,
                     deformation_gradient, xi, shape_functions, linearization, stress,
                     integration_factor, preparation_data, history_data_, gp, *stiff);
+              }
+
+              if constexpr (Core::FE::dim<celltype> == 2)
+              {
+                if (element_properties_.plane_assumption == PlaneAssumption::axisymmetric)
+                {
+                  const double reference_radius = gp_ref_coord(0);
+                  add_axisymmetric_hoop_force_stiffness<celltype>(shape_functions, jacobian_mapping,
+                      deformation_gradient, stress, reference_radius, out_of_plane.defgrd_33,
+                      element_properties_.kintype, integration_factor,
+                      force.has_value() ? &*force : nullptr, stiff.has_value() ? &*stiff : nullptr);
+                }
               }
 
               if (mass.has_value())
@@ -355,7 +394,9 @@ void Discret::Elements::SolidEleCalc<celltype, ElementFormulation>::update(
                   .xi = &xi,
                   .ref_coords = &gp_ref_coord};
               update_material<celltype>(solid_material, element_properties_, deformation_gradient,
-                  params, context, gp, ele.id());
+                  params, context, gp, ele.id(),
+                  compute_out_of_plane_kinematics<celltype>(
+                      element_properties_, nodal_coordinates, shape_functions, gp_ref_coord));
             });
       });
 
@@ -403,8 +444,10 @@ double Discret::Elements::SolidEleCalc<celltype, ElementFormulation>::calculate_
                   .xi = &xi,
                   .ref_coords = &gp_ref_coord};
 
-              double psi = evaluate_material_strain_energy<celltype>(
-                  solid_material, element_properties_, gl_strain, params, context, gp, ele.id());
+              double psi = evaluate_material_strain_energy<celltype>(solid_material,
+                  element_properties_, gl_strain, params, context, gp, ele.id(),
+                  compute_out_of_plane_kinematics<celltype>(
+                      element_properties_, nodal_coordinates, shape_functions, gp_ref_coord));
 
               intenergy += psi * integration_factor;
             });
@@ -462,7 +505,9 @@ void Discret::Elements::SolidEleCalc<celltype, ElementFormulation>::calculate_st
                   .ref_coords = &gp_ref_coord};
               const Stress<celltype> stress =
                   evaluate_material_stress<celltype>(solid_material, element_properties_,
-                      deformation_gradient, gl_strain, params, context, gp, ele.id());
+                      deformation_gradient, gl_strain, params, context, gp, ele.id(),
+                      compute_out_of_plane_kinematics<celltype>(
+                          element_properties_, nodal_coordinates, shape_functions, gp_ref_coord));
 
               assemble_strain_type_to_matrix_row<celltype>(element_properties_, gl_strain, stress,
                   deformation_gradient, strainIO.type, strain_data, gp);

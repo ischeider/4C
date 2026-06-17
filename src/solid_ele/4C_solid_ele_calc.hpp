@@ -68,7 +68,8 @@ namespace Discret::Elements
       requires(Core::FE::dim<celltype> == 3);
 
     SolidEleCalc(SolidIntegrationRules<Core::FE::dim<celltype>> integration_rules,
-        double reference_thickness, PlaneAssumption plane_assumption)
+        double reference_thickness, PlaneAssumption plane_assumption,
+        Inpar::Solid::KinemType kintype)
       requires(Core::FE::dim<celltype> == 2);
 
     void pack(Core::Communication::PackBuffer& data) const;

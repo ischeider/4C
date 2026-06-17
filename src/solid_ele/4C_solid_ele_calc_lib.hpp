@@ -929,8 +929,14 @@ namespace Discret::Elements
     Core::LinAlg::SymmetricTensor<double, 3, 3> gl_strain_3d_;
 
     /// Full 3D deformation gradient consistent with the plane assumption (F_zz = 1 for
-    /// plane strain, F_zz determined by the material routine for plane stress).
+    /// plane strain, F_zz determined by the material routine for plane stress, F_zz the
+    /// hoop stretch for axisymmetric).
     Core::LinAlg::Tensor<double, 3, 3> defgrd_3d_;
+
+    /// Full 3D linearization of the 2nd Piola-Kirchhoff stress w.r.t. the Green-Lagrange strain.
+    /// Only populated (and needed) for the axisymmetric formulation, where the out-of-plane
+    /// (hoop) component couples to the in-plane stiffness.
+    Core::LinAlg::SymmetricTensor<double, 3, 3, 3, 3> cmat_3d_;
   };
 
   template <Core::FE::CellType celltype>
@@ -942,7 +948,8 @@ namespace Discret::Elements
   enum class PlaneAssumption
   {
     plane_stress,
-    plane_strain
+    plane_strain,
+    axisymmetric
   };
 
   template <Core::FE::CellType celltype>
@@ -952,8 +959,29 @@ namespace Discret::Elements
     /// Thickness of the 2D element in the third dimension
     double reference_thickness = 1.0;
 
-    /// Plane assumption for the 2D element, either plane stress or plane strain
+    /// Plane assumption for the 2D element, either plane stress, plane strain or axisymmetric
     PlaneAssumption plane_assumption = PlaneAssumption::plane_strain;
+
+    /// Kinematic type (linear or nonlinear). Required by the axisymmetric formulation to
+    /// determine the out-of-plane (hoop) kinematics consistently with the in-plane kinematics.
+    Inpar::Solid::KinemType kintype = Inpar::Solid::KinemType::nonlinearTotLag;
+  };
+
+  /*!
+   * @brief Out-of-plane (third direction) kinematics for 2D elements.
+   *
+   * For plane strain this defaults to a vanishing out-of-plane strain and a unit out-of-plane
+   * stretch. For the axisymmetric formulation it carries the hoop Green-Lagrange strain and the
+   * hoop stretch F_theta = r_current / r_reference. It is ignored for plane stress, where the
+   * out-of-plane components are determined by enforcing a vanishing out-of-plane stress.
+   */
+  struct OutOfPlaneKinematics
+  {
+    /// Out-of-plane Green-Lagrange strain E_33
+    double gl_strain_33 = 0.0;
+
+    /// Out-of-plane stretch F_33
+    double defgrd_33 = 1.0;
   };
 
   /*!
@@ -981,7 +1009,7 @@ namespace Discret::Elements
       const Core::LinAlg::SymmetricTensor<double, Core::FE::dim<celltype>, Core::FE::dim<celltype>>&
           gl_strain,
       Teuchos::ParameterList& params, const Mat::EvaluationContext<3>& context, const int gp,
-      const int eleGID)
+      const int eleGID, const OutOfPlaneKinematics& = {})
   {
     Stress<celltype> stress{};
     material.evaluate(&defgrd, gl_strain, params, context, stress.pk2_, stress.cmat_, gp, eleGID);
@@ -994,7 +1022,7 @@ namespace Discret::Elements
       const ElementProperties<celltype>& element_properties,
       const Core::LinAlg::Tensor<double, Core::FE::dim<celltype>, Core::FE::dim<celltype>>& defgrd,
       Teuchos::ParameterList& params, const Mat::EvaluationContext<3>& context, const int gp,
-      const int eleGID)
+      const int eleGID, const OutOfPlaneKinematics& = {})
   {
     material.update(defgrd, gp, params, context, eleGID);
   }
@@ -1006,7 +1034,7 @@ namespace Discret::Elements
       const Core::LinAlg::SymmetricTensor<double, Core::FE::dim<celltype>, Core::FE::dim<celltype>>&
           gl_strain,
       Teuchos::ParameterList& params, const Mat::EvaluationContext<3>& context, const int gp,
-      const int eleGID)
+      const int eleGID, const OutOfPlaneKinematics& = {})
   {
     return material.strain_energy(gl_strain, context, gp, eleGID);
   }
@@ -1272,8 +1300,20 @@ namespace Discret::Elements
         double integration_factor = jacobian_mapping.determinant_ * integration.weight(gp);
         if constexpr (Core::FE::dim<celltype> == 2)
         {
-          // In the 2D case, we also have a thickness of the element
-          integration_factor *= element_properties.reference_thickness;
+          if (element_properties.plane_assumption == PlaneAssumption::axisymmetric)
+          {
+            // In the axisymmetric case, the third dimension is the circumferential direction.
+            // The volume element is r * dr * dz (per radian); we therefore weight the
+            // integration with the reference radial coordinate r of the Gauss point.
+            const double radius = evaluate_reference_coordinate<celltype>(
+                nodal_coordinates.reference_coordinates, shape_functions.shapefunctions_)(0);
+            integration_factor *= radius;
+          }
+          else
+          {
+            // In the plane stress/strain case, we also have a thickness of the element
+            integration_factor *= element_properties.reference_thickness;
+          }
         }
 
         return integration_factor;

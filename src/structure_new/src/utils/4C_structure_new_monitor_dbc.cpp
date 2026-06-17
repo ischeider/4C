@@ -10,6 +10,8 @@
 #include "4C_fem_condition.hpp"
 #include "4C_fem_discretization.hpp"
 #include "4C_fem_general_extract_values.hpp"
+#include "4C_fem_general_utils_fem_shapefunctions.hpp"
+#include "4C_fem_general_utils_gausspoints.hpp"
 #include "4C_fem_geometry_element_volume.hpp"
 #include "4C_global_data.hpp"
 #include "4C_io.hpp"
@@ -17,6 +19,7 @@
 #include "4C_io_runtime_csv_writer.hpp"
 #include "4C_io_yaml.hpp"
 #include "4C_linalg_utils_sparse_algebra_manipulation.hpp"
+#include "4C_solid_ele.hpp"
 #include "4C_structure_new_dbc.hpp"
 #include "4C_structure_new_monitor_dbc_input.hpp"
 #include "4C_structure_new_timint_basedataglobalstate.hpp"
@@ -29,6 +32,72 @@
 #include <vector>
 
 FOUR_C_NAMESPACE_OPEN
+
+namespace
+{
+  /*!
+   * @brief Reference/current "area" of an axisymmetric boundary line.
+   *
+   * For axisymmetric elements the solid element assembles all contributions weighted by the radial
+   * coordinate and integrated per radian (the factor 2*pi is consistently omitted). The reaction
+   * force reported by the monitor is therefore a per-radian quantity. To obtain a physically
+   * meaningful stress = force / area, the boundary area has to use the same per-radian, radially
+   * weighted measure \f$ \int r \, \mathrm{d}l \f$ instead of the plain line length.
+   */
+  template <Core::FE::CellType distype>
+  double axisymmetric_line_area(const Core::LinAlg::SerialDenseMatrix& xyze)
+  {
+    static constexpr int numnode = Core::FE::num_nodes(distype);
+    const Core::FE::GaussIntegration intpoints(distype);
+
+    Core::LinAlg::Matrix<numnode, 1> funct;
+    Core::LinAlg::Matrix<1, numnode> deriv;
+    Core::LinAlg::Matrix<1, 3> xjm;
+
+    double area = 0.0;
+    for (int iquad = 0; iquad < intpoints.num_points(); ++iquad)
+    {
+      const double xi = intpoints.point(iquad)[0];
+      Core::FE::shape_function_1d(funct, xi, distype);
+      Core::FE::shape_function_1d_deriv1(deriv, xi, distype);
+
+      // the radial coordinate r is the first (x) coordinate
+      double radius = 0.0;
+      for (int inode = 0; inode < numnode; ++inode) radius += funct(inode) * xyze(0, inode);
+
+      xjm = 0.0;
+      for (int inode = 0; inode < numnode; ++inode)
+        for (int j = 0; j < 3; ++j) xjm(0, j) += deriv(0, inode) * xyze(j, inode);
+
+      area += intpoints.weight(iquad) * radius * xjm.norm2();
+    }
+    return area;
+  }
+
+  double axisymmetric_face_area(
+      Core::FE::CellType shape, const Core::LinAlg::SerialDenseMatrix& xyze)
+  {
+    switch (shape)
+    {
+      case Core::FE::CellType::line2:
+        return axisymmetric_line_area<Core::FE::CellType::line2>(xyze);
+      case Core::FE::CellType::line3:
+        return axisymmetric_line_area<Core::FE::CellType::line3>(xyze);
+      default:
+        FOUR_C_THROW(
+            "Reaction monitoring for axisymmetric elements is only implemented for line2 and line3 "
+            "boundary elements, but got shape '{}'.",
+            Core::FE::cell_type_to_string(shape));
+    }
+  }
+
+  //! Return whether the parent of the given boundary (face) element is an axisymmetric solid.
+  bool is_axisymmetric_face(const Core::Elements::FaceElement& fele)
+  {
+    const auto* solid = dynamic_cast<const Discret::Elements::Solid<2>*>(fele.parent_element());
+    return solid != nullptr && solid->is_axisymmetric();
+  }
+}  // namespace
 
 /*----------------------------------------------------------------------------*
  *----------------------------------------------------------------------------*/
@@ -531,8 +600,16 @@ void Solid::MonitorDbc::get_area(double area[], const Core::Conditions::Conditio
       }
     }
 
-    larea[AreaType::ref] += Core::Geo::element_volume(fele->shape(), xyze_ref);
-    larea[AreaType::curr] += Core::Geo::element_volume(fele->shape(), xyze_curr);
+    if (is_axisymmetric_face(*fele))
+    {
+      larea[AreaType::ref] += axisymmetric_face_area(fele->shape(), xyze_ref);
+      larea[AreaType::curr] += axisymmetric_face_area(fele->shape(), xyze_curr);
+    }
+    else
+    {
+      larea[AreaType::ref] += Core::Geo::element_volume(fele->shape(), xyze_ref);
+      larea[AreaType::curr] += Core::Geo::element_volume(fele->shape(), xyze_curr);
+    }
   }
 
   std::array<double, 2> garea = Core::Communication::sum_all(larea, discret.get_comm());

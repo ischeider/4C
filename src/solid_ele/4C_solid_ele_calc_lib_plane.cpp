@@ -115,7 +115,38 @@ namespace
         .cmat_ = extract_2d_part(cmat_3d),
         .pk2_3d_ = pk2_3d,
         .gl_strain_3d_ = gl_strain_3d,
-        .defgrd_3d_ = defgrd_3d};
+        .defgrd_3d_ = defgrd_3d,
+        .cmat_3d_ = {}};
+  }
+
+  template <Core::FE::CellType celltype>
+  Discret::Elements::Stress<celltype> evaluate_material_axisymmetric(Mat::So3Material& material,
+      const Core::LinAlg::Tensor<double, 2, 2>& defgrd,
+      const Core::LinAlg::SymmetricTensor<double, 2, 2>& gl_strain,
+      const Discret::Elements::OutOfPlaneKinematics& out_of_plane, Teuchos::ParameterList& params,
+      const Mat::EvaluationContext<2>& context, const int gp, const int eleGID)
+  {
+    // Build the full 3D deformation gradient and Green-Lagrange strain with the out-of-plane
+    // (hoop) component coming from the axisymmetric kinematics.
+    const Core::LinAlg::Tensor<double, 3, 3> defgrd_3d =
+        make_3d_tensor(defgrd, out_of_plane.defgrd_33);
+    const Core::LinAlg::SymmetricTensor<double, 3, 3> gl_strain_3d =
+        make_3d_tensor(gl_strain, out_of_plane.gl_strain_33);
+
+    // making 3D context out of 2D context
+    Core::LinAlg::Tensor<double, 3> xi, gp_ref_coord;
+    const Mat::EvaluationContext<3> context_3d = translate_context(context, xi, gp_ref_coord);
+
+    Core::LinAlg::SymmetricTensor<double, 3, 3> pk2_3d{};
+    Core::LinAlg::SymmetricTensor<double, 3, 3, 3, 3> cmat_3d{};
+    material.evaluate(&defgrd_3d, gl_strain_3d, params, context_3d, pk2_3d, cmat_3d, gp, eleGID);
+
+    return {.pk2_ = extract_2d_part(pk2_3d),
+        .cmat_ = extract_2d_part(cmat_3d),
+        .pk2_3d_ = pk2_3d,
+        .gl_strain_3d_ = gl_strain_3d,
+        .defgrd_3d_ = defgrd_3d,
+        .cmat_3d_ = cmat_3d};
   }
 
   template <Core::FE::CellType celltype>
@@ -192,7 +223,8 @@ namespace
                 .cmat_ = extract_2d_part(cmat_3d) - plane_stress_linearization,
                 .pk2_3d_ = pk2_3d,
                 .gl_strain_3d_ = gl_strain_3d,
-                .defgrd_3d_ = defgrd_3d},
+                .defgrd_3d_ = defgrd_3d,
+                .cmat_3d_ = {}},
         .gl_strain_3d = gl_strain_3d};
   }
 }  // namespace
@@ -206,7 +238,8 @@ void Discret::Elements::transform_to_3d(Mat::So3Material& material,
     const Mat::EvaluationContext<2>& context, const int gp, const int eleGID,
     const std::function<void(const Core::LinAlg::Tensor<double, 3, 3>&,
         const Core::LinAlg::SymmetricTensor<double, 3, 3>&, const Mat::EvaluationContext<3>&)>&
-        funct)
+        funct,
+    const OutOfPlaneKinematics& out_of_plane)
 {
   // making 3D context out of 2D context
   Core::LinAlg::Tensor<double, 3> xi, gp_ref_coord;
@@ -239,6 +272,16 @@ void Discret::Elements::transform_to_3d(Mat::So3Material& material,
       funct(defgrd_3d, gl_strain_3d, context_3d);
       return;
     }
+    case PlaneAssumption::axisymmetric:
+    {
+      // the out-of-plane (hoop) component is prescribed by the axisymmetric kinematics
+      const Core::LinAlg::Tensor<double, 3, 3> defgrd_3d =
+          make_3d_tensor(defgrd, out_of_plane.defgrd_33);
+      const Core::LinAlg::SymmetricTensor<double, 3, 3> gl_strain_3d =
+          make_3d_tensor(gl_strain, out_of_plane.gl_strain_33);
+      funct(defgrd_3d, gl_strain_3d, context_3d);
+      return;
+    }
     default:
       FOUR_C_THROW("Unknown plane assumption for 2D solid element.");
   }
@@ -250,7 +293,8 @@ Discret::Elements::Stress<celltype> Discret::Elements::evaluate_material_stress(
     Mat::So3Material& material, const ElementProperties<celltype>& element_properties,
     const Core::LinAlg::Tensor<double, 2, 2>& defgrd,
     const Core::LinAlg::SymmetricTensor<double, 2, 2>& gl_strain, Teuchos::ParameterList& params,
-    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID)
+    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID,
+    const OutOfPlaneKinematics& out_of_plane)
 {
   // Note: This is a legacy evaluation for 2D materials. 4C currently does not have pure 2D
   // materials, so we use normal 3D materials instead for now.
@@ -263,6 +307,13 @@ Discret::Elements::Stress<celltype> Discret::Elements::evaluate_material_stress(
     base_material = dynamic_cast<Mat::StructPoro&>(material).get_material().get();
   }
 
+  // The axisymmetric formulation needs the full 3D material tangent (including hoop coupling),
+  // so it always uses the general 3D evaluation path instead of the simplified St. Venant path.
+  if (element_properties.plane_assumption == PlaneAssumption::axisymmetric)
+  {
+    return evaluate_material_axisymmetric<celltype>(
+        material, defgrd, gl_strain, out_of_plane, params, context, gp, eleGID);
+  }
 
   switch (base_material->material_type())
   {
@@ -338,17 +389,20 @@ template <Core::FE::CellType celltype>
 void Discret::Elements::update_material(Mat::So3Material& material,
     const ElementProperties<celltype>& element_properties,
     const Core::LinAlg::Tensor<double, 2, 2>& defgrd, Teuchos::ParameterList& params,
-    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID)
+    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID,
+    const OutOfPlaneKinematics& out_of_plane)
 {
   Core::LinAlg::SymmetricTensor<double, 2, 2> gl_strain =
       0.5 * (Core::LinAlg::assume_symmetry(Core::LinAlg::transpose(defgrd) * defgrd) -
                 Core::LinAlg::TensorGenerators::identity<double, 2, 2>);
 
-  transform_to_3d(material, element_properties, defgrd, gl_strain, params, context, gp, eleGID,
+  transform_to_3d(
+      material, element_properties, defgrd, gl_strain, params, context, gp, eleGID,
       [&](const Core::LinAlg::Tensor<double, 3, 3>& defgrd_3d,
           const Core::LinAlg::SymmetricTensor<double, 3, 3>& gl_strain_3d,
           const Mat::EvaluationContext<3>& context_3d)
-      { material.update(defgrd_3d, gp, params, context_3d, eleGID); });
+      { material.update(defgrd_3d, gp, params, context_3d, eleGID); },
+      out_of_plane);
 }
 
 template <Core::FE::CellType celltype>
@@ -356,7 +410,8 @@ template <Core::FE::CellType celltype>
 double Discret::Elements::evaluate_material_strain_energy(Mat::So3Material& material,
     const ElementProperties<celltype>& element_properties,
     const Core::LinAlg::SymmetricTensor<double, 2, 2>& gl_strain, Teuchos::ParameterList& params,
-    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID)
+    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID,
+    const OutOfPlaneKinematics& out_of_plane)
 {
   constexpr auto dummy_defgrd =
       Core::LinAlg::get_full(Core::LinAlg::TensorGenerators::identity<double, 2, 2>);
@@ -364,11 +419,13 @@ double Discret::Elements::evaluate_material_strain_energy(Mat::So3Material& mate
       Discret::Elements::compute_deformation_gradient_from_gl_strains(dummy_defgrd, gl_strain);
 
   double strain_energy = 0.0;
-  transform_to_3d(material, element_properties, defgrd, gl_strain, params, context, gp, eleGID,
+  transform_to_3d(
+      material, element_properties, defgrd, gl_strain, params, context, gp, eleGID,
       [&](const Core::LinAlg::Tensor<double, 3, 3>& defgrd_3d,
           const Core::LinAlg::SymmetricTensor<double, 3, 3>& gl_strain_3d,
           const Mat::EvaluationContext<3>& context_3d)
-      { strain_energy = material.strain_energy(gl_strain_3d, context_3d, gp, eleGID); });
+      { strain_energy = material.strain_energy(gl_strain_3d, context_3d, gp, eleGID); },
+      out_of_plane);
 
   return strain_energy;
 }
@@ -380,7 +437,8 @@ template void Discret::Elements::transform_to_3d(Mat::So3Material& material,
     const Mat::EvaluationContext<2>& context, int gp, int eleGID,
     const std::function<void(const Core::LinAlg::Tensor<double, 3, 3>&,
         const Core::LinAlg::SymmetricTensor<double, 3, 3>&, const Mat::EvaluationContext<3>&)>&
-        funct);
+        funct,
+    const OutOfPlaneKinematics& out_of_plane);
 template void Discret::Elements::transform_to_3d(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::quad8>& element_properties,
     const Core::LinAlg::Tensor<double, 2, 2>& defgrd,
@@ -388,7 +446,8 @@ template void Discret::Elements::transform_to_3d(Mat::So3Material& material,
     const Mat::EvaluationContext<2>& context, int gp, int eleGID,
     const std::function<void(const Core::LinAlg::Tensor<double, 3, 3>&,
         const Core::LinAlg::SymmetricTensor<double, 3, 3>&, const Mat::EvaluationContext<3>&)>&
-        funct);
+        funct,
+    const OutOfPlaneKinematics& out_of_plane);
 template void Discret::Elements::transform_to_3d(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::quad9>& element_properties,
     const Core::LinAlg::Tensor<double, 2, 2>& defgrd,
@@ -396,7 +455,8 @@ template void Discret::Elements::transform_to_3d(Mat::So3Material& material,
     const Mat::EvaluationContext<2>& context, int gp, int eleGID,
     const std::function<void(const Core::LinAlg::Tensor<double, 3, 3>&,
         const Core::LinAlg::SymmetricTensor<double, 3, 3>&, const Mat::EvaluationContext<3>&)>&
-        funct);
+        funct,
+    const OutOfPlaneKinematics& out_of_plane);
 template void Discret::Elements::transform_to_3d(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::nurbs9>& element_properties,
     const Core::LinAlg::Tensor<double, 2, 2>& defgrd,
@@ -404,7 +464,8 @@ template void Discret::Elements::transform_to_3d(Mat::So3Material& material,
     const Mat::EvaluationContext<2>& context, int gp, int eleGID,
     const std::function<void(const Core::LinAlg::Tensor<double, 3, 3>&,
         const Core::LinAlg::SymmetricTensor<double, 3, 3>&, const Mat::EvaluationContext<3>&)>&
-        funct);
+        funct,
+    const OutOfPlaneKinematics& out_of_plane);
 template void Discret::Elements::transform_to_3d(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::tri3>& element_properties,
     const Core::LinAlg::Tensor<double, 2, 2>& defgrd,
@@ -412,7 +473,8 @@ template void Discret::Elements::transform_to_3d(Mat::So3Material& material,
     const Mat::EvaluationContext<2>& context, int gp, int eleGID,
     const std::function<void(const Core::LinAlg::Tensor<double, 3, 3>&,
         const Core::LinAlg::SymmetricTensor<double, 3, 3>&, const Mat::EvaluationContext<3>&)>&
-        funct);
+        funct,
+    const OutOfPlaneKinematics& out_of_plane);
 template void Discret::Elements::transform_to_3d(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::tri6>& element_properties,
     const Core::LinAlg::Tensor<double, 2, 2>& defgrd,
@@ -420,93 +482,112 @@ template void Discret::Elements::transform_to_3d(Mat::So3Material& material,
     const Mat::EvaluationContext<2>& context, int gp, int eleGID,
     const std::function<void(const Core::LinAlg::Tensor<double, 3, 3>&,
         const Core::LinAlg::SymmetricTensor<double, 3, 3>&, const Mat::EvaluationContext<3>&)>&
-        funct);
+        funct,
+    const OutOfPlaneKinematics& out_of_plane);
 
 template Discret::Elements::Stress<Core::FE::CellType::quad4>
 Discret::Elements::evaluate_material_stress<Core::FE::CellType::quad4>(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::quad4>& element_properties,
     const Core::LinAlg::Tensor<double, 2, 2>& defgrd,
     const Core::LinAlg::SymmetricTensor<double, 2, 2>& gl_strain, Teuchos::ParameterList& params,
-    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID);
+    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID,
+    const OutOfPlaneKinematics& out_of_plane);
 template Discret::Elements::Stress<Core::FE::CellType::quad8>
 Discret::Elements::evaluate_material_stress<Core::FE::CellType::quad8>(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::quad8>& element_properties,
     const Core::LinAlg::Tensor<double, 2, 2>& defgrd,
     const Core::LinAlg::SymmetricTensor<double, 2, 2>& gl_strain, Teuchos::ParameterList& params,
-    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID);
+    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID,
+    const OutOfPlaneKinematics& out_of_plane);
 template Discret::Elements::Stress<Core::FE::CellType::quad9>
 Discret::Elements::evaluate_material_stress<Core::FE::CellType::quad9>(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::quad9>& element_properties,
     const Core::LinAlg::Tensor<double, 2, 2>& defgrd,
     const Core::LinAlg::SymmetricTensor<double, 2, 2>& gl_strain, Teuchos::ParameterList& params,
-    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID);
+    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID,
+    const OutOfPlaneKinematics& out_of_plane);
 template Discret::Elements::Stress<Core::FE::CellType::nurbs9>
 Discret::Elements::evaluate_material_stress<Core::FE::CellType::nurbs9>(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::nurbs9>& element_properties,
     const Core::LinAlg::Tensor<double, 2, 2>& defgrd,
     const Core::LinAlg::SymmetricTensor<double, 2, 2>& gl_strain, Teuchos::ParameterList& params,
-    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID);
+    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID,
+    const OutOfPlaneKinematics& out_of_plane);
 template Discret::Elements::Stress<Core::FE::CellType::tri3>
 Discret::Elements::evaluate_material_stress<Core::FE::CellType::tri3>(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::tri3>& element_properties,
     const Core::LinAlg::Tensor<double, 2, 2>& defgrd,
     const Core::LinAlg::SymmetricTensor<double, 2, 2>& gl_strain, Teuchos::ParameterList& params,
-    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID);
+    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID,
+    const OutOfPlaneKinematics& out_of_plane);
 template Discret::Elements::Stress<Core::FE::CellType::tri6>
 Discret::Elements::evaluate_material_stress<Core::FE::CellType::tri6>(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::tri6>& element_properties,
     const Core::LinAlg::Tensor<double, 2, 2>& defgrd,
     const Core::LinAlg::SymmetricTensor<double, 2, 2>& gl_strain, Teuchos::ParameterList& params,
-    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID);
+    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID,
+    const OutOfPlaneKinematics& out_of_plane);
 
 template void Discret::Elements::update_material(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::quad4>& element_properties,
     const Core::LinAlg::Tensor<double, 2, 2>& defgrd, Teuchos::ParameterList& params,
-    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID);
+    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID,
+    const OutOfPlaneKinematics& out_of_plane);
 template void Discret::Elements::update_material(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::quad8>& element_properties,
     const Core::LinAlg::Tensor<double, 2, 2>& defgrd, Teuchos::ParameterList& params,
-    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID);
+    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID,
+    const OutOfPlaneKinematics& out_of_plane);
 template void Discret::Elements::update_material(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::quad9>& element_properties,
     const Core::LinAlg::Tensor<double, 2, 2>& defgrd, Teuchos::ParameterList& params,
-    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID);
+    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID,
+    const OutOfPlaneKinematics& out_of_plane);
 template void Discret::Elements::update_material(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::nurbs9>& element_properties,
     const Core::LinAlg::Tensor<double, 2, 2>& defgrd, Teuchos::ParameterList& params,
-    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID);
+    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID,
+    const OutOfPlaneKinematics& out_of_plane);
 template void Discret::Elements::update_material(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::tri3>& element_properties,
     const Core::LinAlg::Tensor<double, 2, 2>& defgrd, Teuchos::ParameterList& params,
-    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID);
+    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID,
+    const OutOfPlaneKinematics& out_of_plane);
 template void Discret::Elements::update_material(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::tri6>& element_properties,
     const Core::LinAlg::Tensor<double, 2, 2>& defgrd, Teuchos::ParameterList& params,
-    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID);
+    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID,
+    const OutOfPlaneKinematics& out_of_plane);
 
 template double Discret::Elements::evaluate_material_strain_energy(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::quad4>& element_properties,
     const Core::LinAlg::SymmetricTensor<double, 2, 2>& gl_strain, Teuchos::ParameterList& params,
-    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID);
+    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID,
+    const OutOfPlaneKinematics& out_of_plane);
 template double Discret::Elements::evaluate_material_strain_energy(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::quad8>& element_properties,
     const Core::LinAlg::SymmetricTensor<double, 2, 2>& gl_strain, Teuchos::ParameterList& params,
-    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID);
+    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID,
+    const OutOfPlaneKinematics& out_of_plane);
 template double Discret::Elements::evaluate_material_strain_energy(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::quad9>& element_properties,
     const Core::LinAlg::SymmetricTensor<double, 2, 2>& gl_strain, Teuchos::ParameterList& params,
-    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID);
+    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID,
+    const OutOfPlaneKinematics& out_of_plane);
 template double Discret::Elements::evaluate_material_strain_energy(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::nurbs9>& element_properties,
     const Core::LinAlg::SymmetricTensor<double, 2, 2>& gl_strain, Teuchos::ParameterList& params,
-    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID);
+    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID,
+    const OutOfPlaneKinematics& out_of_plane);
 template double Discret::Elements::evaluate_material_strain_energy(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::tri3>& element_properties,
     const Core::LinAlg::SymmetricTensor<double, 2, 2>& gl_strain, Teuchos::ParameterList& params,
-    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID);
+    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID,
+    const OutOfPlaneKinematics& out_of_plane);
 template double Discret::Elements::evaluate_material_strain_energy(Mat::So3Material& material,
     const ElementProperties<Core::FE::CellType::tri6>& element_properties,
     const Core::LinAlg::SymmetricTensor<double, 2, 2>& gl_strain, Teuchos::ParameterList& params,
-    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID);
+    const Mat::EvaluationContext<2>& context, const int gp, const int eleGID,
+    const OutOfPlaneKinematics& out_of_plane);
 
 FOUR_C_NAMESPACE_CLOSE

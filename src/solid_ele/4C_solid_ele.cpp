@@ -109,8 +109,10 @@ namespace
         parameter<std::optional<std::vector<double>>>("FIBER2", {.size = 2}),
         parameter<std::optional<std::vector<double>>>("FIBER3", {.size = 2}),
         get_integration_rule_input_spec<celltype>(),
-        parameter<double>(
-            "THICKNESS", {.description = "Reference thickness of the 2D solid element"}),
+        parameter<double>("THICKNESS",
+            {.description = "Reference thickness of the 2D solid element (ignored for the "
+                            "axisymmetric plane assumption)",
+                .default_value = 1.0}),
         parameter<Discret::Elements::PlaneAssumption>(
             "PLANE_ASSUMPTION", {.description = "Plane assumption for the 2D solid element"}),
     });

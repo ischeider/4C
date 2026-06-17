@@ -188,6 +188,15 @@ namespace Discret::Elements
              solid_ele_property_.element_technology == ElementTechnology::shell_eas_ans;
     }
 
+    //! Return whether the element uses the axisymmetric plane assumption (always false in 3D).
+    [[nodiscard]] bool is_axisymmetric() const
+    {
+      if constexpr (dim == 2)
+        return solid_ele_property_.plane_assumption == PlaneAssumption::axisymmetric;
+      else
+        return false;
+    }
+
     void vis_names(std::map<std::string, int>& names) override;
 
     void set_integration_rule(const Core::FE::GaussIntegration& integration_rule);
