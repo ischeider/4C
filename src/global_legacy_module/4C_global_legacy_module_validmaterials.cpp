@@ -1418,6 +1418,80 @@ std::unordered_map<Core::Materials::MaterialType, Core::IO::InputSpec> Global::v
   }
 
   /*----------------------------------------------------------------------*/
+  // Modified Bai-Wierzbicki large-strain von Mises plasticity with hybrid CDM ductile damage
+  {
+    using namespace Core::IO::InputSpecBuilders::Validators;
+
+    known_materials[Core::Materials::m_baiwierzbicki] = group("MAT_Struct_BaiWierzbicki",
+        {
+            parameter<double>(
+                "DENS", {.description = "mass density", .validator = positive<double>()}),
+            parameter<double>(
+                "YOUNG", {.description = "Young's modulus", .validator = positive<double>()}),
+            parameter<double>("NUE",
+                {.description = "Poisson's ratio", .validator = in_range(excl(-1.0), excl(0.5))}),
+            parameter<double>(
+                "YIELD", {.description = "constant yield stress (used if HARDENING_FUNC == 0)",
+                             .default_value = 0.0,
+                             .validator = positive_or_zero<double>()}),
+            parameter<int>("HARDENING_FUNC",
+                {.description = "function number for the isotropic hardening curve sigma_y(epsp) "
+                                "(VARFUNCTION using the variable epsp)",
+                    .default_value = 0}),
+            parameter<int>("DIL_FUNC",
+                {.description =
+                        "function number for the damage initiation locus epsp_i(eta,theta) "
+                        "(VARFUNCTION using the variables eta and theta); 0 disables damage",
+                    .default_value = 0}),
+            parameter<double>(
+                "GF", {.description = "specific fracture energy G_f (required if DIL_FUNC != 0)",
+                          .default_value = 0.0,
+                          .validator = positive_or_zero<double>()}),
+            parameter<double>("DCRIT",
+                {.description = "critical damage value D_cr at which the load carrying capacity is "
+                                "lost",
+                    .default_value = 1.0,
+                    .validator = in_range(excl(0.0), incl(1.0))}),
+            parameter<double>("OMEGA_FAILURE",
+                {.description = "integrity omega = 1 - D at which the Gauss point is considered "
+                                "failed; afterwards the stiffness is omega times the elastic one",
+                    .default_value = 1.0e-4,
+                    .validator = in_range(excl(0.0), incl(1.0))}),
+            parameter<double>(
+                "VISC", {.description = "viscosity of the Perzyna viscous regularization (0 = rate "
+                                        "independent)",
+                            .default_value = 0.0,
+                            .validator = positive_or_zero<double>()}),
+            parameter<double>("RATE_DEPENDENCY",
+                {.description = "rate exponent of the Perzyna viscous regularization",
+                    .default_value = 0.0,
+                    .validator = positive_or_zero<double>()}),
+            parameter<double>("L_CHAR",
+                {.description =
+                        "characteristic length; if 0 the characteristic Gauss point size is "
+                        "taken from the element",
+                    .default_value = 0.0,
+                    .validator = positive_or_zero<double>()}),
+            parameter<int>(
+                "MAX_ITER", {.description = "maximum number of local Newton-Raphson iterations",
+                                .default_value = 50,
+                                .validator = positive<int>()}),
+            parameter<double>(
+                "TOL", {.description = "tolerance for the local Newton-Raphson iteration",
+                           .default_value = 1.0e-8,
+                           .validator = positive<double>()}),
+        },
+        {.description =
+                "Modified Bai-Wierzbicki large-strain (logarithmic / Hencky strain, additive "
+                "split, nonlinear kinematics) von Mises plasticity coupled with a hybrid "
+                "continuum-damage-mechanics ductile damage model (Lian et al. 2015). Isotropic "
+                "hardening via HARDENING_FUNC or constant YIELD; damage initiation locus via "
+                "DIL_FUNC(eta,theta) with fracture-energy based softening regularized by the "
+                "characteristic length. Perzyna viscous regularization via VISC and "
+                "RATE_DEPENDENCY."});
+  }
+
+  /*----------------------------------------------------------------------*/
   // Plastic linear elastic St.Venant Kirchhoff / von Mises
   {
     known_materials[Core::Materials::m_pllinelast] = group("MAT_Struct_PlasticLinElast",

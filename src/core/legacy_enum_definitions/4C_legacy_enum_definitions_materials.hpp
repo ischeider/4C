@@ -143,6 +143,8 @@ namespace Core::Materials
     m_pllinelast,        ///< linear elasticity (St. Venant Kirchhoff) and von Mises plasticity
     m_plnlnlogneohooke,  ///< Neo-Hooke elasticity with logarithmic finite strain von Mises
                          ///< plasticity
+    m_baiwierzbicki,     ///< Modified Bai-Wierzbicki large-strain (logarithmic) von Mises
+                         ///< plasticity with hybrid CDM ductile damage (Lian et al. 2014)
     m_poro_law_constant,             ///< constant porosity
     m_poro_law_linear,               ///< linear law for porosity
     m_poro_law_logNeoHooke_Penalty,  ///< neo hookeian like law for porosity + penalty term

@@ -113,6 +113,8 @@ std::string_view Core::Materials::to_string(Core::Materials::MaterialType materi
       return "MAT_Struct_ThermoPlasticHyperElast";
     case m_plnlnlogneohooke:
       return "MAT_Struct_PlasticNlnLogNeoHooke";
+    case m_baiwierzbicki:
+      return "MAT_Struct_BaiWierzbicki";
     case m_pllinelast:
       return "MAT_Struct_PlasticLinElast";
     case m_vp_no_yield_surface:

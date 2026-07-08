@@ -43,6 +43,11 @@ namespace Mat
     /// Coordinates of the evaluation point in the reference configuration (nullptr if not
     /// available)
     const Core::LinAlg::Tensor<double, dim>* ref_coords;
+
+    /// Characteristic size of the Gauss point in the reference configuration, i.e. the cubic
+    /// root of the reference volume associated with the Gauss point (nullptr if not available).
+    /// Used e.g. by damage models with a fracture-energy based regularization.
+    const double* gp_char_length = nullptr;
   };
 
   class So3Material : public Core::Mat::Material

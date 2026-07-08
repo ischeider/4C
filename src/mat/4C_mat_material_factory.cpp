@@ -11,6 +11,7 @@
 #include "4C_global_data.hpp"
 #include "4C_legacy_enum_definitions_materials.hpp"
 #include "4C_mat_aaaneohooke.hpp"
+#include "4C_mat_baiwierzbicki.hpp"
 #include "4C_mat_beam3r_plasticity.hpp"
 #include "4C_mat_beam_elasthyper_parameter.hpp"
 #include "4C_mat_carreauyasuda.hpp"
@@ -261,6 +262,10 @@ std::unique_ptr<Core::Mat::PAR::Parameter> Mat::make_parameter(
     case Core::Materials::m_plnlnlogneohooke:
     {
       return make_parameter_impl<Mat::PAR::PlasticNlnLogNeoHooke>(id, type, input_data);
+    }
+    case Core::Materials::m_baiwierzbicki:
+    {
+      return make_parameter_impl<Mat::PAR::BaiWierzbicki>(id, type, input_data);
     }
     case Core::Materials::m_pllinelast:
     {

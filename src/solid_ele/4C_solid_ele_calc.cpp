@@ -36,6 +36,7 @@
 
 #include <Teuchos_ParameterList.hpp>
 
+#include <cmath>
 #include <concepts>
 #include <memory>
 #include <optional>
@@ -202,10 +203,12 @@ void Discret::Elements::SolidEleCalc<celltype,
               auto gp_ref_coord = evaluate_reference_coordinate<celltype>(
                   nodal_coordinates.reference_coordinates, shape_functions.shapefunctions_);
 
+              const double gp_char_length = std::cbrt(integration_factor);
               Mat::EvaluationContext<Core::FE::dim<celltype>> context{.total_time = total_time,
                   .time_step_size = time_step_size,
                   .xi = &xi,
-                  .ref_coords = &gp_ref_coord};
+                  .ref_coords = &gp_ref_coord,
+                  .gp_char_length = &gp_char_length};
               const Stress<celltype> stress =
                   evaluate_material_stress<celltype>(solid_material, element_properties_,
                       deformation_gradient, gl_strain, params, context, gp, ele.id());
@@ -350,10 +353,12 @@ void Discret::Elements::SolidEleCalc<celltype, ElementFormulation>::update(
               auto gp_ref_coord = evaluate_reference_coordinate<celltype>(
                   nodal_coordinates.reference_coordinates, shape_functions.shapefunctions_);
 
+              const double gp_char_length = std::cbrt(integration_factor);
               Mat::EvaluationContext<Core::FE::dim<celltype>> context{.total_time = total_time,
                   .time_step_size = time_step_size,
                   .xi = &xi,
-                  .ref_coords = &gp_ref_coord};
+                  .ref_coords = &gp_ref_coord,
+                  .gp_char_length = &gp_char_length};
               update_material<celltype>(solid_material, element_properties_, deformation_gradient,
                   params, context, gp, ele.id());
             });
@@ -456,10 +461,12 @@ void Discret::Elements::SolidEleCalc<celltype, ElementFormulation>::calculate_st
               auto gp_ref_coord = evaluate_reference_coordinate<celltype>(
                   nodal_coordinates.reference_coordinates, shape_functions.shapefunctions_);
 
+              const double gp_char_length = std::cbrt(integration_factor);
               Mat::EvaluationContext<Core::FE::dim<celltype>> context{.total_time = total_time,
                   .time_step_size = time_step_size,
                   .xi = &xi,
-                  .ref_coords = &gp_ref_coord};
+                  .ref_coords = &gp_ref_coord,
+                  .gp_char_length = &gp_char_length};
               const Stress<celltype> stress =
                   evaluate_material_stress<celltype>(solid_material, element_properties_,
                       deformation_gradient, gl_strain, params, context, gp, ele.id());
