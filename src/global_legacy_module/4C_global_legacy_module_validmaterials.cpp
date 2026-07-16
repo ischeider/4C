@@ -20,6 +20,7 @@
 #include "4C_mat_inelastic_defgrad_factors_service.hpp"
 #include "4C_mat_micromaterial.hpp"
 #include "4C_mat_plasticdruckerprager.hpp"
+#include "4C_mat_plasticmohrcoulomb.hpp"
 #include "4C_mat_scatra_growth_remodel.hpp"
 #include "4C_mat_scatra_nonlocal_stimulus.hpp"
 #include "4C_porofluid_pressure_based_elast_scatra_input.hpp"
@@ -1188,6 +1189,51 @@ std::unordered_map<Core::Materials::MaterialType, Core::IO::InputSpec> Global::v
                         "and a potentially non-associated plastic potential: = "
                         "\\sqrt{J_2} + \\overline{\\eta} \\, \\mathrm{tr}(\\mathbf{\\sigma}) - "
                         "\\xi\\, (c + H_\\mathrm{iso}\\varepsilon_\\mathrm{p}^\\mathrm{acc}$"});
+  }
+
+  /*----------------------------------------------------------------------*/
+  // Finite-strain Hencky elasticity / Mohr-Coulomb plasticity
+  {
+    using namespace Core::IO::InputSpecBuilders::Validators;
+    constexpr double half_pi = 1.57079632679489661923;
+    known_materials[Core::Materials::m_plmohrcoulomb] = group("MAT_PlasticMohrCoulomb",
+        {
+            parameter<double>("YOUNG_MODULUS",
+                {.description = "Young's modulus", .validator = positive<double>()}),
+            parameter<double>("POISSON_RATIO",
+                {.description = "Poisson's ratio", .validator = in_range(excl(-1.0), excl(0.5))}),
+            parameter<double>("DENSITY",
+                {.description = "Mass density", .validator = positive_or_zero<double>()}),
+            parameter<double>("COHESION",
+                {.description = "Initial cohesion", .validator = positive_or_zero<double>()}),
+            parameter<double>(
+                "INTERNAL_FRICTION_ANGLE", {.description = "Internal friction angle in radians",
+                                               .validator = in_range(excl(0.0), excl(half_pi))}),
+            parameter<double>("INTERNAL_DILATANCY_ANGLE",
+                {.description = "Internal dilatancy angle in radians; equal to the friction angle "
+                                "for associative plasticity",
+                    .validator = in_range(incl(0.0), excl(half_pi))}),
+            parameter<double>("ISOTROPIC_HARDENING_MODULUS",
+                {.description = "Linear isotropic cohesion hardening modulus",
+                    .default_value = 0.0,
+                    .validator = positive_or_zero<double>()}),
+            parameter<double>("EXPONENTIAL_SATURATION_COHESION",
+                {.description = "Asymptotic cohesion for Voce hardening",
+                    .validator = positive_or_zero<double>()}),
+            parameter<double>("HARDENING_EXPONENT", {.description = "Voce hardening exponent",
+                                                        .default_value = 0.0,
+                                                        .validator = positive_or_zero<double>()}),
+            parameter<double>("TOLERANCE", {.description = "Local consistency tolerance",
+                                               .default_value = 1.0e-10,
+                                               .validator = positive<double>()}),
+            parameter<int>("MAX_ITERATIONS", {.description = "Maximum local consistency iterations",
+                                                 .default_value = 100,
+                                                 .validator = positive<int>()}),
+        },
+        {.description =
+                "Finite-strain Mohr-Coulomb plasticity using elastic Hencky strain and Kirchhoff "
+                "stress, with associative or non-associated flow and linear/Voce isotropic "
+                "hardening."});
   }
 
   /*----------------------------------------------------------------------*/

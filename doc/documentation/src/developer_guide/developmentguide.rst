@@ -19,3 +19,4 @@ Developer guide
     petra_object_model
     development_parts
     developer_release
+    mohr_coulomb_material
