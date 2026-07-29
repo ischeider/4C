@@ -9,6 +9,7 @@
 
 #include "4C_constraint_springdashpot.hpp"
 #include "4C_fem_condition_definition.hpp"
+#include "4C_fracture_input.hpp"
 #include "4C_io_input_spec.hpp"
 #include "4C_io_input_spec_builders.hpp"
 #include "4C_utils_enum.hpp"
@@ -65,6 +66,7 @@ namespace Solid
     using namespace Core::IO::InputSpecBuilders;
 
     std::vector<Core::IO::InputSpec> specs;
+    specs.push_back(Fracture::valid_parameters());
     specs.push_back(group("STRUCTURAL DYNAMIC",
         {
 

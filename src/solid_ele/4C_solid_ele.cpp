@@ -412,6 +412,23 @@ void Discret::Elements::Solid<dim>::for_each_gauss_point(Core::FE::Discretizatio
       *solid_calc_variant_);
 }
 
+template <unsigned dim>
+std::array<double, 3> Discret::Elements::Solid<dim>::calculate_configurational_force(
+    Core::FE::Discretization& discretization, std::vector<int>& lm, Teuchos::ParameterList& params,
+    const std::span<const double> nodal_extension_field)
+  requires(dim == 3)
+{
+  FOUR_C_ASSERT(solid_calc_variant_.has_value(),
+      "The solid calculation interface is not initialized for element id {}.", id());
+  return std::visit(
+      [&](auto& interface)
+      {
+        return interface->calculate_configurational_force(
+            *this, *solid_material(), discretization, lm, params, nodal_extension_field);
+      },
+      *solid_calc_variant_);
+}
+
 template class Discret::Elements::SolidType<2>;
 template class Discret::Elements::Solid<2>;
 template class Discret::Elements::SolidType<3>;

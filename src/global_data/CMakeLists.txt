@@ -12,6 +12,7 @@ set(_dependencies
     config
     contact_constitutivelaw
     core
+    fracture
     global_legacy_module
     inpar
     mat

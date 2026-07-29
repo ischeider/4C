@@ -16,6 +16,7 @@ set(_dependencies
     config
     contact
     core
+    fracture
     global_data
     inpar
     solver_nonlin_nox

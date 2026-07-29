@@ -19,6 +19,8 @@
 #include "4C_fem_general_element_definition.hpp"
 #include "4C_fem_general_utils_createdis.hpp"
 #include "4C_fem_nurbs_discretization.hpp"
+#include "4C_fracture_crack_front.hpp"
+#include "4C_fracture_input.hpp"
 #include "4C_global_legacy_module.hpp"
 #include "4C_global_legacy_module_validconditions.hpp"
 #include "4C_global_legacy_module_validmaterials.hpp"
@@ -1568,6 +1570,18 @@ void Global::read_conditions(
         }
       }
     }
+  }
+
+  const Teuchos::ParameterList& parameters = problem.parameters();
+  if (parameters.isType<std::vector<Teuchos::ParameterList>>("STRUCTURAL DYNAMIC/FRACTURE"))
+  {
+    const auto cracks = Fracture::parse_parameters(
+        parameters.get<std::vector<Teuchos::ParameterList>>("STRUCTURAL DYNAMIC/FRACTURE"));
+    auto crack_front_conditions = Fracture::make_crack_front_conditions(cracks, input_node_sets);
+    auto structural_discretization = problem.get_dis("structure");
+    for (auto& condition : crack_front_conditions)
+      structural_discretization->set_condition(
+          std::string(Fracture::crack_front_condition_name), std::move(condition));
   }
 
   if (Core::Communication::my_mpi_rank(input.get_comm()) == 0)

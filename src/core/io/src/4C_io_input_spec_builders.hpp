@@ -1750,6 +1750,9 @@ namespace Core::IO
      * parsed data from the container. The store_index_as() function can be used to create such a
      * callback.
      *
+     * Alternatives may have the same name when their YAML representations are distinguishable, for
+     * example a scalar enum and a vector under the same key.
+     *
      * @note The one_of() function is not intended to be used for selecting from a fixed set of
      * different values of the same type. Use the selection() function for this purpose.
      *
@@ -2072,8 +2075,10 @@ bool Core::IO::Internal::ParameterSpec<T>::emit(YamlNodeRef node,
 {
   node.node |= ryml::MAP;
   // Value present in container
-  if (auto value = container.get_if<StoredType>(name))
+  if (container.has_entry_of_type<StoredType>(name))
   {
+    const auto* value = container.get_if<StoredType>(name);
+    FOUR_C_ASSERT(value != nullptr, "Stored parameter type changed unexpectedly.");
     if (options.emit_defaulted_values || !(data.default_value.index() == 1) ||
         std::get<1>(data.default_value) != *value)
     {
@@ -2082,6 +2087,11 @@ bool Core::IO::Internal::ParameterSpec<T>::emit(YamlNodeRef node,
       emit_value_as_yaml(node.wrap(value_node), *value);
     }
     return true;
+  }
+  // A differently typed alternative with the same name is present.
+  else if (container.has_entry(name))
+  {
+    return false;
   }
   // Not present but we have a default
   else if (data.default_value.index() == 1)

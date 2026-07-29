@@ -21,6 +21,7 @@
 #include "4C_solid_ele_formulation.hpp"
 
 #include <memory>
+#include <span>
 #include <string>
 #include <type_traits>
 #include <unordered_map>
@@ -102,6 +103,12 @@ namespace Discret::Elements
     double calculate_internal_energy(const Core::Elements::Element& ele,
         Mat::So3Material& solid_material, const Core::FE::Discretization& discretization,
         const std::vector<int>& lm, Teuchos::ParameterList& params);
+
+    std::array<double, 3> calculate_configurational_force(const Core::Elements::Element& ele,
+        Mat::So3Material& solid_material, const Core::FE::Discretization& discretization,
+        const std::vector<int>& lm, Teuchos::ParameterList& params,
+        std::span<const double> nodal_extension_field)
+      requires(Core::FE::dim<celltype> == 3);
 
     void initialize_gauss_point_data_output(const Core::Elements::Element& ele,
         const Mat::So3Material& solid_material,

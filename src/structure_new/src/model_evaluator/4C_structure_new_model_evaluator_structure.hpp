@@ -33,6 +33,11 @@ namespace Core::LinAlg
   class SparseMatrix;
 }  // namespace Core::LinAlg
 
+namespace Fracture
+{
+  class Manager;
+}
+
 namespace Solid
 {
   namespace ModelEvaluator
@@ -42,6 +47,7 @@ namespace Solid
      public:
       //! constructor
       Structure();
+      ~Structure() override;
 
 
       void setup() override;
@@ -524,6 +530,7 @@ namespace Solid
 
       //! csv writer for per rank per timestep evaluation times
       std::unique_ptr<Core::IO::RuntimeCsvWriter> runtime_csvwriter_rank_eval_times_;
+      std::unique_ptr<Fracture::Manager> fracture_manager_;
 
       //! mass linearization type
       Solid::MassLin masslin_type_;

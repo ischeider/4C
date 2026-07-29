@@ -13,6 +13,8 @@
 #include "4C_fem_discretization.hpp"
 #include "4C_fem_discretization_utils.hpp"
 #include "4C_fem_general_utils_gauss_point_postprocess.hpp"
+#include "4C_fracture_input.hpp"
+#include "4C_fracture_manager.hpp"
 #include "4C_global_data.hpp"
 #include "4C_io.hpp"
 #include "4C_io_discretization_visualization_writer_mesh.hpp"
@@ -54,6 +56,8 @@ Solid::ModelEvaluator::Structure::Structure()
 {
   // empty
 }
+
+Solid::ModelEvaluator::Structure::~Structure() = default;
 
 /*----------------------------------------------------------------------------*
  *----------------------------------------------------------------------------*/
@@ -133,6 +137,18 @@ void Solid::ModelEvaluator::Structure::setup()
           number_global_beam_elements > 0)
         init_output_runtime_beams();
     }
+  }
+
+  const Teuchos::ParameterList& problem_parameters = Global::Problem::instance()->parameters();
+  if (problem_parameters.isType<std::vector<Teuchos::ParameterList>>("STRUCTURAL DYNAMIC/FRACTURE"))
+  {
+    auto cracks = Fracture::parse_parameters(
+        problem_parameters.get<std::vector<Teuchos::ParameterList>>("STRUCTURAL DYNAMIC/FRACTURE"));
+    auto fracture_visualization_parameters = Core::IO::visualization_parameters_factory(
+        Global::Problem::instance()->io_params().sublist("RUNTIME VTK OUTPUT"),
+        *Global::Problem::instance()->output_control_file(), global_state().get_time_n());
+    fracture_manager_ = std::make_unique<Fracture::Manager>(discret(), std::move(cracks),
+        discret_ptr()->writer()->output().file_name(), fracture_visualization_parameters);
   }
 
   // setup error evaluator parameters
@@ -756,6 +772,21 @@ void Solid::ModelEvaluator::Structure::write_output_runtime_structure(
 
   // append node GIDs if desired
   if (structure_output_params.output_node_gid()) vtu_writer_ptr_->append_node_gid("node_gid");
+
+  if (fracture_manager_ != nullptr)
+  {
+    for (std::size_t crack = 0; crack < fracture_manager_->number_of_cracks(); ++crack)
+    {
+      std::string field_name = "fracture_domain_" + fracture_manager_->crack_id(crack);
+      for (char& character : field_name)
+        if (!std::isalnum(static_cast<unsigned char>(character)) && character != '_')
+          character = '_';
+      std::vector<std::optional<std::string>> context(1, field_name);
+      auto layer_data = fracture_manager_->element_layer_data(crack);
+      vtu_writer_ptr_->append_result_data_vector_with_context(
+          *layer_data, Core::IO::OutputEntity::element, context);
+    }
+  }
 
   // append stress if desired
   if (structure_output_params.output_stress_strain() and
@@ -1553,6 +1584,14 @@ void Solid::ModelEvaluator::Structure::update_step_state(const double& timefac_n
 
   // set the displacement increment back to zero
   dis_incr_ptr_->put_scalar(0.0);
+
+  if (fracture_manager_ != nullptr)
+  {
+    discret().clear_state();
+    discret().set_state("displacement", *global_state().get_dis_n());
+    fracture_manager_->evaluate(global_state().get_time_np(), global_state().get_delta_time()[0]);
+    fracture_manager_->write_step(global_state().get_step_np(), global_state().get_time_np());
+  }
 }
 
 

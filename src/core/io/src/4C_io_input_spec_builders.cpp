@@ -1351,8 +1351,6 @@ Core::IO::InputSpec Core::IO::InputSpecBuilders::one_of(std::vector<InputSpec> s
     return flattened_specs[0];
   }
 
-  assert_unique_or_empty_names(flattened_specs);
-
   // Assert that all specs are required.
   const bool all_required =
       std::ranges::all_of(flattened_specs, [](const auto& spec) { return spec.impl().required(); });

@@ -16,4 +16,5 @@ Analysis Guide
    contact
    materials
    struct_dynamics
+   fracture_mechanics
    linear_solvers

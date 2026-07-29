@@ -414,6 +414,105 @@ double Discret::Elements::SolidEleCalc<celltype, ElementFormulation>::calculate_
 }
 
 template <Core::FE::CellType celltype, typename ElementFormulation>
+std::array<double, 3>
+Discret::Elements::SolidEleCalc<celltype, ElementFormulation>::calculate_configurational_force(
+    const Core::Elements::Element& ele, Mat::So3Material& solid_material,
+    const Core::FE::Discretization& discretization, const std::vector<int>& lm,
+    Teuchos::ParameterList& params, const std::span<const double> nodal_extension_field)
+  requires(Core::FE::dim<celltype> == 3)
+{
+  if constexpr (!std::same_as<ElementFormulation,
+                    DisplacementBasedLinearKinematicsFormulation<celltype>>)
+  {
+    FOUR_C_THROW(
+        "Fracture EDI currently supports only displacement-based linear-kinematics solids.");
+  }
+  else
+  {
+    FOUR_C_ASSERT_ALWAYS(nodal_extension_field.size() == Core::FE::num_nodes(celltype),
+        "Fracture extension field has {} values for a {}-node element.",
+        nodal_extension_field.size(), Core::FE::num_nodes(celltype));
+
+    const ElementNodes<celltype> nodal_coordinates =
+        evaluate_element_nodes<celltype>(ele, discretization, lm);
+    const PreparationData<ElementFormulation> preparation_data =
+        prepare(ele, nodal_coordinates, history_data_);
+
+    std::array<double, 3> configurational_force{0.0, 0.0, 0.0};
+    const double* total_time =
+        params.isParameter("total time") ? &params.get<double>("total time") : nullptr;
+    const double* time_step_size =
+        params.isParameter("delta time") ? &params.get<double>("delta time") : nullptr;
+
+    Discret::Elements::for_each_gauss_point(nodal_coordinates, element_properties_,
+        stiffness_matrix_integration_,
+        [&](const Core::LinAlg::Tensor<double, 3>& xi,
+            const ShapeFunctionsAndDerivatives<celltype>& shape_functions,
+            const JacobianMapping<celltype>& jacobian_mapping, const double integration_factor,
+            const int gp)
+        {
+          evaluate(ele, nodal_coordinates, xi, shape_functions, jacobian_mapping, preparation_data,
+              history_data_, gp,
+              [&](const Core::LinAlg::Tensor<double, 3, 3>& deformation_gradient,
+                  const Core::LinAlg::SymmetricTensor<double, 3, 3>& gl_strain,
+                  const auto& linearization)
+              {
+                auto gp_ref_coord = evaluate_reference_coordinate<celltype>(
+                    nodal_coordinates.reference_coordinates, shape_functions.shapefunctions_);
+                Mat::EvaluationContext<3> context{.total_time = total_time,
+                    .time_step_size = time_step_size,
+                    .xi = &xi,
+                    .ref_coords = &gp_ref_coord};
+
+                const Stress<celltype> stress =
+                    evaluate_material_stress<celltype>(solid_material, element_properties_,
+                        deformation_gradient, gl_strain, params, context, gp, ele.id());
+                const double energy_density = evaluate_material_strain_energy<celltype>(
+                    solid_material, element_properties_, gl_strain, params, context, gp, ele.id());
+
+                Core::LinAlg::Tensor<double, 3> extension_gradient{};
+                Core::LinAlg::Tensor<double, 3, 3> displacement_gradient{};
+                for (int node = 0; node < Core::FE::num_nodes(celltype); ++node)
+                {
+                  for (int reference_direction = 0; reference_direction < 3; ++reference_direction)
+                  {
+                    extension_gradient(reference_direction) +=
+                        nodal_extension_field[node] *
+                        jacobian_mapping.N_XYZ[node](reference_direction);
+                    for (int displacement_direction = 0; displacement_direction < 3;
+                        ++displacement_direction)
+                      displacement_gradient(displacement_direction, reference_direction) +=
+                          nodal_coordinates.displacements(displacement_direction, node) *
+                          jacobian_mapping.N_XYZ[node](reference_direction);
+                  }
+                }
+
+                for (int extension_direction = 0; extension_direction < 3; ++extension_direction)
+                {
+                  double contribution = 0.0;
+                  for (int gradient_direction = 0; gradient_direction < 3; ++gradient_direction)
+                  {
+                    double stress_work = 0.0;
+                    for (int displacement_direction = 0; displacement_direction < 3;
+                        ++displacement_direction)
+                      stress_work +=
+                          displacement_gradient(displacement_direction, extension_direction) *
+                          stress.pk2_(displacement_direction, gradient_direction);
+                    contribution +=
+                        (stress_work -
+                            (extension_direction == gradient_direction ? energy_density : 0.0)) *
+                        extension_gradient(gradient_direction);
+                  }
+                  configurational_force[extension_direction] += contribution * integration_factor;
+                }
+              });
+        });
+
+    return configurational_force;
+  }
+}
+
+template <Core::FE::CellType celltype, typename ElementFormulation>
 void Discret::Elements::SolidEleCalc<celltype, ElementFormulation>::calculate_stress(
     const Core::Elements::Element& ele, Mat::So3Material& solid_material, const StressIO& stressIO,
     const StrainIO& strainIO, const Core::FE::Discretization& discretization,

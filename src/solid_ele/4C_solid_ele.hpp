@@ -22,6 +22,7 @@
 #include "4C_utils_exceptions.hpp"
 
 #include <memory>
+#include <span>
 
 FOUR_C_NAMESPACE_OPEN
 
@@ -214,6 +215,11 @@ namespace Discret::Elements
     void for_each_gauss_point(Core::FE::Discretization& discretization, std::vector<int>& lm,
         const std::function<void(Mat::So3Material&, double integration_factor, int gp)>& integrator)
         const;
+
+    std::array<double, 3> calculate_configurational_force(Core::FE::Discretization& discretization,
+        std::vector<int>& lm, Teuchos::ParameterList& params,
+        std::span<const double> nodal_extension_field)
+      requires(dim == 3);
 
    private:
     //! cell type

@@ -139,6 +139,13 @@ namespace Core::IO
     template <typename T>
     const T* get_if(const std::string& name) const;
 
+    /// Check whether any value is stored under @p name.
+    [[nodiscard]] bool has_entry(const std::string& name) const;
+
+    /// Check whether a value of type @p T is stored under @p name.
+    template <typename T>
+    [[nodiscard]] bool has_entry_of_type(const std::string& name) const;
+
     /**
      * Print the data in the container to the output stream @p os.
      */
@@ -278,6 +285,18 @@ const T* Core::IO::InputParameterContainer::get_if(const std::string& name) cons
   {
     return nullptr;
   }
+}
+
+inline bool Core::IO::InputParameterContainer::has_entry(const std::string& name) const
+{
+  return entries_.contains(name);
+}
+
+template <typename T>
+bool Core::IO::InputParameterContainer::has_entry_of_type(const std::string& name) const
+{
+  const auto it = entries_.find(name);
+  return it != entries_.end() && it->second.data.type() == typeid(T);
 }
 
 FOUR_C_NAMESPACE_CLOSE
