@@ -40,6 +40,13 @@ namespace Discret::Elements
 
   template <Core::FE::CellType celltype>
     requires(Core::FE::dim<celltype> == 2)
+  Stress<celltype> evaluate_axisymmetric_material_stress(Mat::So3Material& material,
+      const Core::LinAlg::Tensor<double, 3, 3>& defgrd,
+      const Core::LinAlg::SymmetricTensor<double, 3, 3>& gl_strain, Teuchos::ParameterList& params,
+      const Mat::EvaluationContext<2>& context, int gp, int eleGID);
+
+  template <Core::FE::CellType celltype>
+    requires(Core::FE::dim<celltype> == 2)
   void update_material(Mat::So3Material& material,
       const ElementProperties<celltype>& element_properties,
       const Core::LinAlg::Tensor<double, 2, 2>& defgrd, Teuchos::ParameterList& params,
@@ -47,10 +54,22 @@ namespace Discret::Elements
 
   template <Core::FE::CellType celltype>
     requires(Core::FE::dim<celltype> == 2)
+  void update_axisymmetric_material(Mat::So3Material& material,
+      const Core::LinAlg::Tensor<double, 3, 3>& defgrd, Teuchos::ParameterList& params,
+      const Mat::EvaluationContext<2>& context, int gp, int eleGID);
+
+  template <Core::FE::CellType celltype>
+    requires(Core::FE::dim<celltype> == 2)
   [[nodiscard]] double evaluate_material_strain_energy(Mat::So3Material& material,
       const ElementProperties<celltype>& element_properties,
       const Core::LinAlg::SymmetricTensor<double, 2, 2>& gl_strain, Teuchos::ParameterList& params,
       const Mat::EvaluationContext<2>& context, const int gp, const int eleGID);
+
+  template <Core::FE::CellType celltype>
+    requires(Core::FE::dim<celltype> == 2)
+  [[nodiscard]] double evaluate_axisymmetric_material_strain_energy(Mat::So3Material& material,
+      const Core::LinAlg::SymmetricTensor<double, 3, 3>& gl_strain,
+      const Mat::EvaluationContext<2>& context, int gp, int eleGID);
 
 }  // namespace Discret::Elements
 

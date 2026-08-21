@@ -2015,6 +2015,37 @@ four_c_test(TEST_FILE solid_ele_wedge6_Standard_shell_eas_ans.4C.yaml NP 2 RETUR
 __four_c_test_restart(BASED_ON ${current} SAME_FILE NP 2 RESTART_STEP 1)
 four_c_test(TEST_FILE solid_ele_wedge6_Standard_stressout.4C.yaml NP 2 RETURN_AS current)
 __four_c_test_restart(BASED_ON ${current} SAME_FILE NP 2 RESTART_STEP 1)
+
+function(__four_c_test_axisymmetric_solid_reference based_on reference_file)
+  get_test_property(${based_on} _internal_OUTPUT_DIR test_directory)
+  set(comparison_test "${based_on}-fenicsx-reference")
+  _add_test_with_options(
+    NAME_OF_TEST
+    ${comparison_test}
+    TEST_COMMAND
+    "${FOUR_C_PYTHON_VENV_BUILD}/bin/python ${PROJECT_SOURCE_DIR}/tests/input_files/reference_generation/axisymmetric_solid_rod/compare_4c_reference.py ${test_directory}/xxx-structure.pvd ${test_directory}/xxx-1001_monitor_dbc.csv ${test_directory}/xxx_energy.csv ${PROJECT_SOURCE_DIR}/tests/input_files/${reference_file}"
+    ADDITIONAL_FIXTURE
+    ${based_on}
+    REQUIRED_DEPENDENCIES
+    Python
+    )
+endfunction()
+
+four_c_test(TEST_FILE solid_axisymmetric_rod_small_strain.4C.yaml RETURN_AS current)
+__four_c_test_axisymmetric_solid_reference(
+  ${current}
+  ref/axisymmetric_solid_rod/small_strain.json
+  )
+four_c_test(TEST_FILE solid_axisymmetric_rod_finite_strain.4C.yaml RETURN_AS current)
+__four_c_test_axisymmetric_solid_reference(
+  ${current}
+  ref/axisymmetric_solid_rod/finite_strain.json
+  )
+four_c_test(TEST_FILE solid_axisymmetric_rod_finite_strain_eas.4C.yaml RETURN_AS current)
+__four_c_test_axisymmetric_solid_reference(
+  ${current}
+  ref/axisymmetric_solid_rod/finite_strain.json
+  )
 four_c_test(TEST_FILE solid_ele_quad4_elasthyper_plane_stress.4C.yaml NP 2 RETURN_AS current)
 __four_c_test_restart(BASED_ON ${current} SAME_FILE NP 2 RESTART_STEP 1)
 __four_c_test_vtk(BASED_ON ${current} PVD_RESULT xxx-structure.pvd PVD_REFERENCE ref/solid_ele_quad4_elasthyper_plane_stress-structure.pvd TOLERANCE 1e-08)

@@ -613,6 +613,115 @@ namespace Discret::Elements
     Core::LinAlg::Matrix<num_str, Discret::Elements::EasTypeToNumEas<eastype>::num_eas> m_tilde{};
   };
 
+  template <Core::FE::CellType celltype, Discret::Elements::EasType eastype>
+    requires(Core::FE::dim<celltype> == 2)
+  struct AxisymmetricEASKinematics
+  {
+    AxisymmetricKinematics<celltype> displacement_based;
+    Core::LinAlg::Tensor<double, 3, 3> enhanced_deformation_gradient;
+    Core::LinAlg::SymmetricTensor<double, 3, 3> enhanced_gl;
+    Core::LinAlg::Matrix<num_str<celltype>, EasTypeToNumEas<eastype>::num_eas> m_tilde;
+  };
+
+  template <Core::FE::CellType celltype, Discret::Elements::EasType eastype>
+    requires(Core::FE::dim<celltype> == 2)
+  AxisymmetricEASKinematics<celltype, eastype> evaluate_axisymmetric_eas_kinematics(
+      const ElementNodes<celltype>& nodal_coordinates,
+      const CentroidTransformation<celltype>& centroid_transformation,
+      const Core::LinAlg::Tensor<double, Core::FE::dim<celltype>>& xi,
+      const ShapeFunctionsAndDerivatives<celltype>& shape_functions,
+      const JacobianMapping<celltype>& jacobian_mapping,
+      const EasIterationData<celltype, eastype>& eas_iteration_data)
+  {
+    AxisymmetricEASKinematics<celltype, eastype> kinematics{
+        .displacement_based = evaluate_axisymmetric_kinematics(
+            nodal_coordinates, shape_functions, jacobian_mapping, false),
+        .enhanced_deformation_gradient = {},
+        .enhanced_gl = {},
+        .m_tilde = evaluate_eas_shape_functions_material_config<celltype, eastype>(
+            jacobian_mapping.determinant_, centroid_transformation, xi)};
+
+    kinematics.enhanced_gl = kinematics.displacement_based.green_lagrange_strain;
+    const auto enhanced_in_plane_strain = evaluate_enhanced_assumed_gl_strains<celltype, eastype>(
+        kinematics.m_tilde, eas_iteration_data.alpha);
+    for (int i = 0; i < 2; ++i)
+      for (int j = i; j < 2; ++j) kinematics.enhanced_gl(i, j) += enhanced_in_plane_strain(i, j);
+
+    kinematics.enhanced_deformation_gradient = compute_deformation_gradient_from_gl_strains(
+        kinematics.displacement_based.deformation_gradient, kinematics.enhanced_gl);
+    return kinematics;
+  }
+
+  template <Core::FE::CellType celltype, Discret::Elements::EasType eastype>
+    requires(Core::FE::dim<celltype> == 2)
+  Core::LinAlg::SymmetricTensor<double, 3, 3> evaluate_axisymmetric_eas_strain_derivative(
+      const Core::LinAlg::Matrix<num_str<celltype>, EasTypeToNumEas<eastype>::num_eas>& m_tilde,
+      const int enhanced_strain_parameter)
+  {
+    Core::LinAlg::SymmetricTensor<double, 3, 3> derivative{};
+    derivative(0, 0) = m_tilde(0, enhanced_strain_parameter);
+    derivative(1, 1) = m_tilde(1, enhanced_strain_parameter);
+    derivative(0, 1) = 0.5 * m_tilde(2, enhanced_strain_parameter);
+    return derivative;
+  }
+
+  template <Core::FE::CellType celltype, Discret::Elements::EasType eastype>
+    requires(Core::FE::dim<celltype> == 2)
+  void integrate_axisymmetric_eas(const AxisymmetricEASKinematics<celltype, eastype>& kinematics,
+      const ShapeFunctionsAndDerivatives<celltype>& shape_functions,
+      const JacobianMapping<celltype>& jacobian_mapping, const Stress<celltype>& stress,
+      const double integration_factor, EasIterationData<celltype, eastype>& eas_iteration_data)
+  {
+    constexpr int num_dofs = num_dof_per_ele<celltype>;
+    constexpr int num_eas = EasTypeToNumEas<eastype>::num_eas;
+    std::array<Core::LinAlg::SymmetricTensor<double, 3, 3>, num_dofs>
+        displacement_strain_derivatives;
+    std::array<Core::LinAlg::SymmetricTensor<double, 3, 3>, num_eas> enhanced_strain_derivatives;
+
+    for (int node = 0; node < num_nodes<celltype>; ++node)
+      for (int component = 0; component < 2; ++component)
+        displacement_strain_derivatives[2 * node + component] =
+            evaluate_axisymmetric_strain_derivative(node, component, kinematics.displacement_based,
+                shape_functions, jacobian_mapping, false);
+    for (int parameter = 0; parameter < num_eas; ++parameter)
+      enhanced_strain_derivatives[parameter] =
+          evaluate_axisymmetric_eas_strain_derivative<celltype, eastype>(
+              kinematics.m_tilde, parameter);
+
+    auto contract_with_material_tangent =
+        [&](const Core::LinAlg::SymmetricTensor<double, 3, 3>& left,
+            const Core::LinAlg::SymmetricTensor<double, 3, 3>& right)
+    {
+      double value = 0.0;
+      for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j)
+          for (int k = 0; k < 3; ++k)
+            for (int l = 0; l < 3; ++l)
+              value += left(i, j) * stress.cmat_3d_(i, j, k, l) * right(k, l);
+      return value;
+    };
+
+    for (int row = 0; row < num_eas; ++row)
+    {
+      double enhanced_residual = 0.0;
+      for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j)
+          enhanced_residual += enhanced_strain_derivatives[row](i, j) * stress.pk2_3d_(i, j);
+      eas_iteration_data.s(row) += integration_factor * enhanced_residual;
+
+      for (int column = 0; column < num_eas; ++column)
+        eas_iteration_data.invKaa(row, column) +=
+            integration_factor * contract_with_material_tangent(enhanced_strain_derivatives[row],
+                                     enhanced_strain_derivatives[column]);
+
+      for (int displacement_dof = 0; displacement_dof < num_dofs; ++displacement_dof)
+        eas_iteration_data.Kda(displacement_dof, row) +=
+            integration_factor *
+            contract_with_material_tangent(displacement_strain_derivatives[displacement_dof],
+                enhanced_strain_derivatives[row]);
+    }
+  }
+
   template <Core::FE::CellType celltype, Discret::Elements::EasType eastype,
       FourC::Solid::KinemType kinematic_type>
   EASKinematics<celltype, eastype> evaluate_eas_kinematics(

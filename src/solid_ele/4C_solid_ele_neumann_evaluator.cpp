@@ -19,13 +19,22 @@
 #include "4C_utils_exceptions.hpp"
 #include "4C_utils_function.hpp"
 
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <numbers>
+
 FOUR_C_NAMESPACE_OPEN
 
 template <int dim>
 void Discret::Elements::evaluate_neumann_by_element(Core::Elements::Element& element,
     const Core::FE::Discretization& discretization, const Core::Conditions::Condition& condition,
-    Core::LinAlg::SerialDenseVector& element_force_vector, double total_time)
+    Core::LinAlg::SerialDenseVector& element_force_vector, double total_time,
+    const bool axisymmetric)
 {
+  FOUR_C_ASSERT_ALWAYS(dim == 2 || !axisymmetric,
+      "Axisymmetric Neumann integration is only available in two dimensions.");
+
   using supported_celltypes = Core::FE::CelltypeSequence<Core::FE::CellType::hex8,
       Core::FE::CellType::hex18, Core::FE::CellType::hex20, Core::FE::CellType::hex27,
       Core::FE::CellType::nurbs27, Core::FE::CellType::pyramid5, Core::FE::CellType::wedge6,
@@ -36,14 +45,15 @@ void Discret::Elements::evaluate_neumann_by_element(Core::Elements::Element& ele
       [&](auto celltype_t)
       {
         return evaluate_neumann<celltype_t(), dim>(
-            element, discretization, condition, element_force_vector, total_time);
+            element, discretization, condition, element_force_vector, total_time, axisymmetric);
       });
 }
 
 template <Core::FE::CellType celltype, int dim>
 void Discret::Elements::evaluate_neumann(Core::Elements::Element& element,
     const Core::FE::Discretization& discretization, const Core::Conditions::Condition& condition,
-    Core::LinAlg::SerialDenseVector& element_force_vector, double total_time)
+    Core::LinAlg::SerialDenseVector& element_force_vector, double total_time,
+    const bool axisymmetric)
 {
   constexpr auto numnod = Core::FE::num_nodes(celltype);
   Core::FE::GaussIntegration gauss_integration = Core::FE::create_gauss_integration<celltype>(
@@ -74,6 +84,17 @@ void Discret::Elements::evaluate_neumann(Core::Elements::Element& element,
   const Core::Elements::ElementNodes<celltype, dim> element_nodes =
       Core::Elements::evaluate_element_nodes<celltype, dim>(discretization, element);
 
+  double axisymmetric_radius_tolerance = 0.0;
+  if (axisymmetric)
+  {
+    double radius_scale = 1.0;
+    for (int node = 0; node < element.num_node(); ++node)
+    {
+      radius_scale = std::max(radius_scale, std::abs(element.nodes()[node]->x()[0]));
+    }
+    axisymmetric_radius_tolerance = 100.0 * std::numeric_limits<double>::epsilon() * radius_scale;
+  }
+
   Core::Elements::for_each_gauss_point<celltype, dim>(element_nodes, gauss_integration,
       [&](const Core::LinAlg::Tensor<double, Core::FE::dim<celltype>>& xi,
           const Core::Elements::ShapeFunctionsAndDerivatives<celltype>& shape_functions,
@@ -84,6 +105,15 @@ void Discret::Elements::evaluate_neumann(Core::Elements::Element& element,
         Core::LinAlg::Matrix<dim, 1> gauss_point_reference_coordinates;
         gauss_point_reference_coordinates.multiply_tn(
             element_nodes.coordinates, shape_functions.values);
+
+        if (axisymmetric)
+        {
+          const double reference_radius = gauss_point_reference_coordinates(0);
+          FOUR_C_ASSERT_ALWAYS(reference_radius >= -axisymmetric_radius_tolerance,
+              "Axisymmetric Neumann integration point has negative reference radius {}.",
+              reference_radius);
+          integration_factor *= 2.0 * std::numbers::pi * std::max(0.0, reference_radius);
+        }
 
         for (auto i = 0; i < dim; ++i)
         {
@@ -123,10 +153,10 @@ void Discret::Elements::evaluate_neumann(Core::Elements::Element& element,
 
 template void Discret::Elements::evaluate_neumann_by_element<3>(Core::Elements::Element&,
     const Core::FE::Discretization&, const Core::Conditions::Condition&,
-    Core::LinAlg::SerialDenseVector&, double);
+    Core::LinAlg::SerialDenseVector&, double, bool);
 template void Discret::Elements::evaluate_neumann_by_element<2>(Core::Elements::Element&,
     const Core::FE::Discretization&, const Core::Conditions::Condition&,
-    Core::LinAlg::SerialDenseVector&, double);
+    Core::LinAlg::SerialDenseVector&, double, bool);
 
 
 FOUR_C_NAMESPACE_CLOSE

@@ -76,10 +76,10 @@ namespace Discret::Elements
     //! specify prestress technology (none, MULF)
     PrestressTechnology prestress_technology{PrestressTechnology::none};
 
-    //! Reference thickness for 2D elements
+    //! Reference thickness for plane 2D elements; ignored for axisymmetric elements
     double reference_thickness{1.0};
 
-    //! Plane assumption for 2D elements
+    //! Kinematic assumption for 2D elements
     PlaneAssumption plane_assumption{PlaneAssumption::plane_stress};
   };
 }  // namespace Discret::Elements

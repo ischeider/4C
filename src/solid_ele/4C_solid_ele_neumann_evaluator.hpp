@@ -56,7 +56,8 @@ namespace Discret::Elements
   template <int dim>
   void evaluate_neumann_by_element(Core::Elements::Element& element,
       const Core::FE::Discretization& discretization, const Core::Conditions::Condition& condition,
-      Core::LinAlg::SerialDenseVector& element_force_vector, double total_time);
+      Core::LinAlg::SerialDenseVector& element_force_vector, double total_time,
+      bool axisymmetric = false);
 
   /*!
    * @brief Evaluates a Neumann condition @p condition for the element @p element with the
@@ -90,7 +91,8 @@ namespace Discret::Elements
   template <Core::FE::CellType celltype, int dim>
   void evaluate_neumann(Core::Elements::Element& element,
       const Core::FE::Discretization& discretization, const Core::Conditions::Condition& condition,
-      Core::LinAlg::SerialDenseVector& element_force_vector, double total_time);
+      Core::LinAlg::SerialDenseVector& element_force_vector, double total_time,
+      bool axisymmetric = false);
 
 }  // namespace Discret::Elements
 

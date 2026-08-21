@@ -313,7 +313,7 @@ int Discret::Elements::Solid<dim>::evaluate_neumann(Teuchos::ParameterList& para
       });
 
   Discret::Elements::evaluate_neumann_by_element<dim>(
-      *this, discretization, condition, elevec1, time);
+      *this, discretization, condition, elevec1, time, is_axisymmetric());
   return 0;
 }
 

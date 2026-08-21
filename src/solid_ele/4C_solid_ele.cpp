@@ -109,10 +109,12 @@ namespace
         parameter<std::optional<std::vector<double>>>("FIBER2", {.size = 2}),
         parameter<std::optional<std::vector<double>>>("FIBER3", {.size = 2}),
         get_integration_rule_input_spec<celltype>(),
-        parameter<double>(
-            "THICKNESS", {.description = "Reference thickness of the 2D solid element"}),
-        parameter<Discret::Elements::PlaneAssumption>(
-            "PLANE_ASSUMPTION", {.description = "Plane assumption for the 2D solid element"}),
+        parameter<double>("THICKNESS",
+            {.description = "Reference thickness of a plane solid element; ignored for axisymmetry",
+                .default_value = 1.0}),
+        parameter<Discret::Elements::PlaneAssumption>("PLANE_ASSUMPTION",
+            {.description = "Kinematic assumption for the 2D solid element: plane_stress, "
+                            "plane_strain, or axisymmetric (r=x[0], z=x[1])"}),
     });
   }
 }  // namespace
@@ -136,7 +138,10 @@ void Discret::Elements::SolidType<dim>::setup_element_definition(
   {
     defsgeneral[Core::FE::CellType::quad4] = all_of({
         get_default_input_spec<Core::FE::CellType::quad4>(),
-        parameter<ElementTechnology>("TECH", {.default_value = ElementTechnology::none}),
+        parameter<ElementTechnology>("TECH",
+            {.description = "Element technology; eas_full is available for nonlinear QUAD4 "
+                            "elements with plane_stress, plane_strain, or axisymmetric kinematics",
+                .default_value = ElementTechnology::none}),
     });
     defsgeneral[Core::FE::CellType::quad8] = get_default_input_spec<Core::FE::CellType::quad8>();
     defsgeneral[Core::FE::CellType::quad9] = get_default_input_spec<Core::FE::CellType::quad9>();

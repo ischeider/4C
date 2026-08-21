@@ -53,7 +53,7 @@ Solid::Utils::ReadElement::read_solid_element_properties(
 
   if constexpr (dim == 2)
   {
-    solid_properties.reference_thickness = container.get<double>("THICKNESS");
+    solid_properties.reference_thickness = container.get_or<double>("THICKNESS", 1.0);
     solid_properties.plane_assumption =
         container.get<Discret::Elements::PlaneAssumption>("PLANE_ASSUMPTION");
   }

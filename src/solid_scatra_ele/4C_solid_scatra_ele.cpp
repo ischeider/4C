@@ -21,6 +21,8 @@
 #include "4C_solid_scatra_ele_lib.hpp"
 #include "4C_structure_new_input.hpp"
 
+#include <set>
+
 FOUR_C_NAMESPACE_OPEN
 
 using namespace Core::IO::InputSpecBuilders;
@@ -51,10 +53,13 @@ namespace
         parameter<std::optional<std::vector<double>>>("FIBER1", {.size = 2}),
         parameter<std::optional<std::vector<double>>>("FIBER2", {.size = 2}),
         parameter<std::optional<std::vector<double>>>("FIBER3", {.size = 2}),
-        parameter<double>(
-            "THICKNESS", {.description = "Reference thickness of the 2D solid element"}),
-        parameter<Discret::Elements::PlaneAssumption>(
-            "PLANE_ASSUMPTION", {.description = "Plane assumption for the 2D solid element"}),
+        parameter<double>("THICKNESS",
+            {.description = "Reference thickness of the 2D solid element", .default_value = 1.0}),
+        parameter<Discret::Elements::PlaneAssumption>("PLANE_ASSUMPTION",
+            {.description = "Plane assumption for the 2D solid-scalar-transport element",
+                .validator = Validators::in_set(std::set<Discret::Elements::PlaneAssumption>{
+                    Discret::Elements::PlaneAssumption::plane_stress,
+                    Discret::Elements::PlaneAssumption::plane_strain})}),
 
     });
   }

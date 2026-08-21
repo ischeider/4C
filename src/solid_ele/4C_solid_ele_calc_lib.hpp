@@ -40,6 +40,8 @@
 #include <Teuchos_ParameterList.hpp>
 
 #include <algorithm>
+#include <limits>
+#include <numbers>
 
 FOUR_C_NAMESPACE_OPEN
 
@@ -928,6 +930,9 @@ namespace Discret::Elements
     /// Full 3D Green-Lagrange strain tensor for output purposes.
     Core::LinAlg::SymmetricTensor<double, 3, 3> gl_strain_3d_;
 
+    /// Full 3D material tangent. This is used by axisymmetric elements.
+    Core::LinAlg::SymmetricTensor<double, 3, 3, 3, 3> cmat_3d_;
+
     /// Full 3D deformation gradient consistent with the plane assumption (F_zz = 1 for
     /// plane strain, F_zz determined by the material routine for plane stress).
     Core::LinAlg::Tensor<double, 3, 3> defgrd_3d_;
@@ -942,7 +947,8 @@ namespace Discret::Elements
   enum class PlaneAssumption
   {
     plane_stress,
-    plane_strain
+    plane_strain,
+    axisymmetric
   };
 
   template <Core::FE::CellType celltype>
@@ -952,9 +958,243 @@ namespace Discret::Elements
     /// Thickness of the 2D element in the third dimension
     double reference_thickness = 1.0;
 
-    /// Plane assumption for the 2D element, either plane stress or plane strain
+    /// Kinematic assumption for the 2D element
     PlaneAssumption plane_assumption = PlaneAssumption::plane_strain;
   };
+
+  template <Core::FE::CellType celltype>
+    requires(Core::FE::dim<celltype> == 2)
+  struct AxisymmetricKinematics
+  {
+    Core::LinAlg::Tensor<double, 3, 3> deformation_gradient;
+    Core::LinAlg::SymmetricTensor<double, 3, 3> green_lagrange_strain;
+    double reference_radius;
+    bool use_axis_limit;
+  };
+
+  template <Core::FE::CellType celltype>
+    requires(Core::FE::dim<celltype> == 2)
+  double evaluate_axisymmetric_reference_radius(const ElementNodes<celltype>& element_nodes,
+      const ShapeFunctionsAndDerivatives<celltype>& shape_functions)
+  {
+    double reference_radius = 0.0;
+    for (int i = 0; i < Internal::num_nodes<celltype>; ++i)
+    {
+      reference_radius +=
+          shape_functions.shapefunctions_(i) * element_nodes.reference_coordinates(0, i);
+    }
+    return reference_radius;
+  }
+
+  template <Core::FE::CellType celltype>
+    requires(Core::FE::dim<celltype> == 2)
+  double evaluate_axisymmetric_radius_tolerance(const ElementNodes<celltype>& element_nodes)
+  {
+    double radius_scale = 1.0;
+    for (int i = 0; i < Internal::num_nodes<celltype>; ++i)
+    {
+      radius_scale = std::max(radius_scale, std::abs(element_nodes.reference_coordinates(0, i)));
+    }
+    return 100.0 * std::numeric_limits<double>::epsilon() * radius_scale;
+  }
+
+  template <Core::FE::CellType celltype>
+    requires(Core::FE::dim<celltype> == 2)
+  void ensure_valid_axisymmetric_reference_coordinates(const ElementNodes<celltype>& element_nodes)
+  {
+    const double radius_tolerance = evaluate_axisymmetric_radius_tolerance(element_nodes);
+    for (int i = 0; i < Internal::num_nodes<celltype>; ++i)
+    {
+      FOUR_C_ASSERT_ALWAYS(element_nodes.reference_coordinates(0, i) >= -radius_tolerance,
+          "Axisymmetric solid elements must lie in r >= 0, but node {} has radius {}.", i,
+          element_nodes.reference_coordinates(0, i));
+    }
+  }
+
+  template <Core::FE::CellType celltype>
+    requires(Core::FE::dim<celltype> == 2)
+  double evaluate_axisymmetric_shape_function_over_radius(const int node,
+      const AxisymmetricKinematics<celltype>& kinematics,
+      const ShapeFunctionsAndDerivatives<celltype>& shape_functions,
+      const JacobianMapping<celltype>& jacobian_mapping)
+  {
+    return kinematics.use_axis_limit
+               ? jacobian_mapping.N_XYZ[node](0)
+               : shape_functions.shapefunctions_(node) / kinematics.reference_radius;
+  }
+
+  template <Core::FE::CellType celltype>
+    requires(Core::FE::dim<celltype> == 2)
+  AxisymmetricKinematics<celltype> evaluate_axisymmetric_kinematics(
+      const ElementNodes<celltype>& element_nodes,
+      const ShapeFunctionsAndDerivatives<celltype>& shape_functions,
+      const JacobianMapping<celltype>& jacobian_mapping, const bool linear_kinematics)
+  {
+    const double reference_radius =
+        evaluate_axisymmetric_reference_radius(element_nodes, shape_functions);
+    const double radius_tolerance = evaluate_axisymmetric_radius_tolerance(element_nodes);
+    FOUR_C_ASSERT_ALWAYS(reference_radius >= -radius_tolerance,
+        "Axisymmetric solid integration point has negative reference radius {}.", reference_radius);
+
+    const bool use_axis_limit = std::abs(reference_radius) <= radius_tolerance;
+    double radial_displacement_over_radius = 0.0;
+    for (int i = 0; i < Internal::num_nodes<celltype>; ++i)
+    {
+      const double shape_function_over_radius =
+          use_axis_limit ? jacobian_mapping.N_XYZ[i](0)
+                         : shape_functions.shapefunctions_(i) / reference_radius;
+      radial_displacement_over_radius +=
+          shape_function_over_radius * element_nodes.displacements(0, i);
+    }
+
+    if (linear_kinematics)
+    {
+      Core::LinAlg::Tensor<double, 3, 3> deformation_gradient =
+          Core::LinAlg::get_full(Core::LinAlg::TensorGenerators::identity<double, 3, 3>);
+      Core::LinAlg::SymmetricTensor<double, 3, 3> strain{};
+
+      const auto in_plane_strain = evaluate_linear_gl_strain(element_nodes, jacobian_mapping);
+      for (int i = 0; i < 2; ++i)
+        for (int j = i; j < 2; ++j) strain(i, j) = in_plane_strain(i, j);
+      strain(2, 2) = radial_displacement_over_radius;
+
+      return {.deformation_gradient = deformation_gradient,
+          .green_lagrange_strain = strain,
+          .reference_radius = reference_radius,
+          .use_axis_limit = use_axis_limit};
+    }
+
+    const SpatialMaterialMapping<celltype> in_plane_mapping =
+        evaluate_spatial_material_mapping(jacobian_mapping, element_nodes);
+    Core::LinAlg::Tensor<double, 3, 3> deformation_gradient{};
+    for (int i = 0; i < 2; ++i)
+      for (int j = 0; j < 2; ++j)
+        deformation_gradient(i, j) = in_plane_mapping.deformation_gradient_(i, j);
+    deformation_gradient(2, 2) = 1.0 + radial_displacement_over_radius;
+
+    const Core::LinAlg::SymmetricTensor<double, 3, 3> strain =
+        0.5 * (Core::LinAlg::assume_symmetry(
+                   Core::LinAlg::transpose(deformation_gradient) * deformation_gradient) -
+                  Core::LinAlg::TensorGenerators::identity<double, 3, 3>);
+
+    return {.deformation_gradient = deformation_gradient,
+        .green_lagrange_strain = strain,
+        .reference_radius = reference_radius,
+        .use_axis_limit = use_axis_limit};
+  }
+
+  template <Core::FE::CellType celltype>
+    requires(Core::FE::dim<celltype> == 2)
+  Core::LinAlg::SymmetricTensor<double, 3, 3> evaluate_axisymmetric_strain_derivative(
+      const int node, const int displacement_component,
+      const AxisymmetricKinematics<celltype>& kinematics,
+      const ShapeFunctionsAndDerivatives<celltype>& shape_functions,
+      const JacobianMapping<celltype>& jacobian_mapping, const bool linear_kinematics)
+  {
+    Core::LinAlg::Tensor<double, 3, 3> displacement_gradient_derivative{};
+    displacement_gradient_derivative(displacement_component, 0) = jacobian_mapping.N_XYZ[node](0);
+    displacement_gradient_derivative(displacement_component, 1) = jacobian_mapping.N_XYZ[node](1);
+    if (displacement_component == 0)
+    {
+      displacement_gradient_derivative(2, 2) = evaluate_axisymmetric_shape_function_over_radius(
+          node, kinematics, shape_functions, jacobian_mapping);
+    }
+
+    if (linear_kinematics)
+    {
+      return Core::LinAlg::assume_symmetry(
+          0.5 * (displacement_gradient_derivative +
+                    Core::LinAlg::transpose(displacement_gradient_derivative)));
+    }
+
+    return Core::LinAlg::assume_symmetry(
+        0.5 * (Core::LinAlg::transpose(displacement_gradient_derivative) *
+                      kinematics.deformation_gradient +
+                  Core::LinAlg::transpose(kinematics.deformation_gradient) *
+                      displacement_gradient_derivative));
+  }
+
+  template <Core::FE::CellType celltype>
+    requires(Core::FE::dim<celltype> == 2)
+  void add_axisymmetric_internal_force_vector(const AxisymmetricKinematics<celltype>& kinematics,
+      const ShapeFunctionsAndDerivatives<celltype>& shape_functions,
+      const JacobianMapping<celltype>& jacobian_mapping, const Stress<celltype>& stress,
+      const double integration_factor, const bool linear_kinematics,
+      Core::LinAlg::Matrix<Internal::num_dof_per_ele<celltype>, 1>& force_vector)
+  {
+    for (int node = 0; node < Internal::num_nodes<celltype>; ++node)
+    {
+      for (int component = 0; component < 2; ++component)
+      {
+        const auto strain_derivative = evaluate_axisymmetric_strain_derivative(
+            node, component, kinematics, shape_functions, jacobian_mapping, linear_kinematics);
+        double force = 0.0;
+        for (int i = 0; i < 3; ++i)
+          for (int j = 0; j < 3; ++j) force += strain_derivative(i, j) * stress.pk2_3d_(i, j);
+        force_vector(2 * node + component) += integration_factor * force;
+      }
+    }
+  }
+
+  template <Core::FE::CellType celltype>
+    requires(Core::FE::dim<celltype> == 2)
+  void add_axisymmetric_stiffness_matrix(const AxisymmetricKinematics<celltype>& kinematics,
+      const ShapeFunctionsAndDerivatives<celltype>& shape_functions,
+      const JacobianMapping<celltype>& jacobian_mapping, const Stress<celltype>& stress,
+      const double integration_factor, const bool linear_kinematics,
+      Core::LinAlg::Matrix<Internal::num_dof_per_ele<celltype>,
+          Internal::num_dof_per_ele<celltype>>& stiffness_matrix)
+  {
+    std::array<Core::LinAlg::SymmetricTensor<double, 3, 3>, Internal::num_dof_per_ele<celltype>>
+        strain_derivatives;
+    for (int node = 0; node < Internal::num_nodes<celltype>; ++node)
+      for (int component = 0; component < 2; ++component)
+        strain_derivatives[2 * node + component] = evaluate_axisymmetric_strain_derivative(
+            node, component, kinematics, shape_functions, jacobian_mapping, linear_kinematics);
+
+    for (int row_node = 0; row_node < Internal::num_nodes<celltype>; ++row_node)
+    {
+      const double row_shape_function_over_radius =
+          evaluate_axisymmetric_shape_function_over_radius(
+              row_node, kinematics, shape_functions, jacobian_mapping);
+      for (int row_component = 0; row_component < 2; ++row_component)
+      {
+        const int row = 2 * row_node + row_component;
+        for (int column_node = 0; column_node < Internal::num_nodes<celltype>; ++column_node)
+        {
+          const double column_shape_function_over_radius =
+              evaluate_axisymmetric_shape_function_over_radius(
+                  column_node, kinematics, shape_functions, jacobian_mapping);
+          for (int column_component = 0; column_component < 2; ++column_component)
+          {
+            const int column = 2 * column_node + column_component;
+            double stiffness = 0.0;
+            for (int i = 0; i < 3; ++i)
+              for (int j = 0; j < 3; ++j)
+                for (int k = 0; k < 3; ++k)
+                  for (int l = 0; l < 3; ++l)
+                    stiffness += strain_derivatives[row](i, j) * stress.cmat_3d_(i, j, k, l) *
+                                 strain_derivatives[column](k, l);
+
+            if (!linear_kinematics && row_component == column_component)
+            {
+              for (int i = 0; i < 2; ++i)
+                for (int j = 0; j < 2; ++j)
+                  stiffness += jacobian_mapping.N_XYZ[row_node](i) * stress.pk2_3d_(i, j) *
+                               jacobian_mapping.N_XYZ[column_node](j);
+            }
+            if (!linear_kinematics && row_component == 0 && column_component == 0)
+            {
+              stiffness += row_shape_function_over_radius * stress.pk2_3d_(2, 2) *
+                           column_shape_function_over_radius;
+            }
+
+            stiffness_matrix(row, column) += integration_factor * stiffness;
+          }
+        }
+      }
+    }
+  }
 
   /*!
    * @brief Evaluates the material stress (2. Piola-Kirchhoff stress tensor and the linearization
@@ -1256,6 +1496,14 @@ namespace Discret::Elements
       ElementProperties<celltype> element_properties, const Core::FE::GaussIntegration& integration,
       GaussPointEvaluator gp_evaluator)
   {
+    if constexpr (Core::FE::dim<celltype> == 2)
+    {
+      if (element_properties.plane_assumption == PlaneAssumption::axisymmetric)
+      {
+        ensure_valid_axisymmetric_reference_coordinates(nodal_coordinates);
+      }
+    }
+
     for (int gp = 0; gp < integration.num_points(); ++gp)
     {
       const Core::LinAlg::Tensor<double, Core::FE::dim<celltype>> xi =
@@ -1272,8 +1520,21 @@ namespace Discret::Elements
         double integration_factor = jacobian_mapping.determinant_ * integration.weight(gp);
         if constexpr (Core::FE::dim<celltype> == 2)
         {
-          // In the 2D case, we also have a thickness of the element
-          integration_factor *= element_properties.reference_thickness;
+          if (element_properties.plane_assumption == PlaneAssumption::axisymmetric)
+          {
+            const double reference_radius =
+                evaluate_axisymmetric_reference_radius(nodal_coordinates, shape_functions);
+            const double radius_tolerance =
+                evaluate_axisymmetric_radius_tolerance(nodal_coordinates);
+            FOUR_C_ASSERT_ALWAYS(reference_radius >= -radius_tolerance,
+                "Axisymmetric solid integration point has negative reference radius {}.",
+                reference_radius);
+            integration_factor *= 2.0 * std::numbers::pi * std::max(0.0, reference_radius);
+          }
+          else
+          {
+            integration_factor *= element_properties.reference_thickness;
+          }
         }
 
         return integration_factor;

@@ -13,6 +13,7 @@
 #include "4C_legacy_enum_definitions_element_actions.hpp"
 #include "4C_linalg_serialdensematrix.hpp"
 #include "4C_linalg_tensor.hpp"
+#include "4C_solid_ele.hpp"
 #include "4C_solid_ele_neumann_evaluator.hpp"
 #include "4C_utils_exceptions.hpp"
 
@@ -235,8 +236,17 @@ int Discret::Elements::SolidLine<dim>::evaluate_neumann(Teuchos::ParameterList& 
           return params.get("total time", -1.0);
       });
 
+  bool axisymmetric = false;
+  if constexpr (dim == 2)
+  {
+    const auto* parent_solid = dynamic_cast<const Discret::Elements::Solid<2>*>(parent_element());
+    FOUR_C_ASSERT_ALWAYS(
+        parent_solid != nullptr, "Solid line has no two-dimensional solid parent.");
+    axisymmetric = parent_solid->is_axisymmetric();
+  }
+
   Discret::Elements::evaluate_neumann_by_element<dim>(
-      *this, discretization, condition, elevec1, total_time);
+      *this, discretization, condition, elevec1, total_time, axisymmetric);
   return 0;
 }
 

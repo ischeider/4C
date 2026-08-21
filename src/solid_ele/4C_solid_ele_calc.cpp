@@ -57,6 +57,32 @@ namespace
     return opt.has_value() ? &opt.value() : nullptr;
   }
 
+  template <Core::FE::CellType celltype>
+  constexpr bool is_supported_axisymmetric_celltype =
+      celltype == Core::FE::CellType::quad4 || celltype == Core::FE::CellType::quad8 ||
+      celltype == Core::FE::CellType::quad9 || celltype == Core::FE::CellType::tri3 ||
+      celltype == Core::FE::CellType::tri6;
+
+  template <Core::FE::CellType celltype, typename ElementFormulation>
+  constexpr bool is_axisymmetric_eas_formulation =
+      celltype == Core::FE::CellType::quad4 &&
+      std::same_as<ElementFormulation,
+          Discret::Elements::EASFormulation<Core::FE::CellType::quad4,
+              Discret::Elements::EasType::eastype_q4_4, Solid::KinemType::nonlinearTotLag>>;
+
+  template <Core::FE::CellType celltype, typename ElementFormulation>
+  constexpr bool is_supported_axisymmetric_formulation =
+      is_supported_axisymmetric_celltype<celltype> &&
+      (std::same_as<ElementFormulation,
+           Discret::Elements::DisplacementBasedFormulation<celltype>> ||
+          std::same_as<ElementFormulation,
+              Discret::Elements::DisplacementBasedLinearKinematicsFormulation<celltype>> ||
+          is_axisymmetric_eas_formulation<celltype, ElementFormulation>);
+
+  template <Core::FE::CellType celltype, typename ElementFormulation>
+  constexpr bool is_axisymmetric_linear_kinematics = std::same_as<ElementFormulation,
+      Discret::Elements::DisplacementBasedLinearKinematicsFormulation<celltype>>;
+
   template <Core::FE::CellType celltype, typename SolidFormulation>
   double evaluate_cauchy_n_dir_at_xi(Mat::So3Material& mat,
       const Core::LinAlg::Tensor<double, Core::FE::dim<celltype>>& xi,
@@ -117,6 +143,12 @@ Discret::Elements::SolidEleCalc<celltype, ElementFormulation>::SolidEleCalc(
           {.reference_thickness = reference_thickness, .plane_assumption = plane_assumption})
 
 {
+  if (plane_assumption == PlaneAssumption::axisymmetric)
+  {
+    FOUR_C_ASSERT_ALWAYS((is_supported_axisymmetric_formulation<celltype, ElementFormulation>),
+        "Axisymmetric SOLID elements support the standard displacement-based formulation for "
+        "QUAD4/8/9 and TRI3/6, and the full EAS formulation for nonlinear QUAD4.");
+  }
   Discret::Elements::resize_gp_history(history_data_, stiffness_matrix_integration_.num_points());
 }
 
@@ -179,12 +211,127 @@ void Discret::Elements::SolidEleCalc<celltype,
   // Check for negative Jacobian determinants
   ensure_positive_jacobian_determinant_at_element_nodes(nodal_coordinates);
 
+  if constexpr (Core::FE::dim<celltype> == 2 &&
+                is_supported_axisymmetric_formulation<celltype, ElementFormulation>)
+  {
+    if (element_properties_.plane_assumption == PlaneAssumption::axisymmetric)
+    {
+      constexpr bool linear_kinematics =
+          is_axisymmetric_linear_kinematics<celltype, ElementFormulation>;
+      double element_mass = 0.0;
+      double element_volume = 0.0;
+      const double* total_time =
+          params.isParameter("total time") ? &params.get<double>("total time") : nullptr;
+      const double* time_step_size =
+          params.isParameter("delta time") ? &params.get<double>("delta time") : nullptr;
+
+      Discret::Elements::for_each_gauss_point(nodal_coordinates, element_properties_,
+          stiffness_matrix_integration_,
+          [&](const Core::LinAlg::Tensor<double, 2>& xi,
+              const ShapeFunctionsAndDerivatives<celltype>& shape_functions,
+              const JacobianMapping<celltype>& jacobian_mapping, const double integration_factor,
+              const int gp)
+          {
+            const AxisymmetricKinematics<celltype> displacement_based_kinematics =
+                evaluate_axisymmetric_kinematics(
+                    nodal_coordinates, shape_functions, jacobian_mapping, linear_kinematics);
+            Core::LinAlg::Tensor<double, 3, 3> constitutive_deformation_gradient =
+                displacement_based_kinematics.deformation_gradient;
+            Core::LinAlg::SymmetricTensor<double, 3, 3> constitutive_gl_strain =
+                displacement_based_kinematics.green_lagrange_strain;
+
+            if constexpr (is_axisymmetric_eas_formulation<celltype, ElementFormulation>)
+            {
+              const auto eas_kinematics =
+                  evaluate_axisymmetric_eas_kinematics<celltype, EasType::eastype_q4_4>(
+                      nodal_coordinates, preparation_data, xi, shape_functions, jacobian_mapping,
+                      history_data_.global_history.eas_iteration_data);
+              constitutive_deformation_gradient = eas_kinematics.enhanced_deformation_gradient;
+              constitutive_gl_strain = eas_kinematics.enhanced_gl;
+            }
+
+            auto gp_ref_coord = evaluate_reference_coordinate<celltype>(
+                nodal_coordinates.reference_coordinates, shape_functions.shapefunctions_);
+            Mat::EvaluationContext<2> context{.total_time = total_time,
+                .time_step_size = time_step_size,
+                .xi = &xi,
+                .ref_coords = &gp_ref_coord};
+            const Stress<celltype> stress = evaluate_axisymmetric_material_stress<celltype>(
+                solid_material, constitutive_deformation_gradient, constitutive_gl_strain, params,
+                context, gp, ele.id());
+
+            if constexpr (is_axisymmetric_eas_formulation<celltype, ElementFormulation>)
+            {
+              const auto eas_kinematics =
+                  evaluate_axisymmetric_eas_kinematics<celltype, EasType::eastype_q4_4>(
+                      nodal_coordinates, preparation_data, xi, shape_functions, jacobian_mapping,
+                      history_data_.global_history.eas_iteration_data);
+              integrate_axisymmetric_eas(eas_kinematics, shape_functions, jacobian_mapping, stress,
+                  integration_factor, history_data_.global_history.eas_iteration_data);
+            }
+
+            if (force.has_value())
+            {
+              add_axisymmetric_internal_force_vector(displacement_based_kinematics, shape_functions,
+                  jacobian_mapping, stress, integration_factor, linear_kinematics, *force);
+            }
+            if (stiff.has_value())
+            {
+              add_axisymmetric_stiffness_matrix(displacement_based_kinematics, shape_functions,
+                  jacobian_mapping, stress, integration_factor, linear_kinematics, *stiff);
+            }
+            if (mass.has_value())
+            {
+              if (equal_integration_mass_stiffness)
+              {
+                add_mass_matrix(
+                    shape_functions, integration_factor, solid_material.density(gp), *mass);
+              }
+              else
+              {
+                element_mass += solid_material.density(gp) * integration_factor;
+                element_volume += integration_factor;
+              }
+            }
+          });
+
+      if constexpr (is_axisymmetric_eas_formulation<celltype, ElementFormulation>)
+      {
+        const auto condensed_contribution_data =
+            prepare_condensed_contribution(preparation_data, history_data_);
+        if (force.has_value())
+          add_condensed_contribution_to_force_vector<celltype>(
+              condensed_contribution_data, preparation_data, history_data_, *force);
+        if (stiff.has_value())
+          add_condensed_contribution_to_stiffness_matrix<celltype>(
+              condensed_contribution_data, preparation_data, history_data_, *stiff);
+      }
+
+      if (mass.has_value() && !equal_integration_mass_stiffness)
+      {
+        FOUR_C_ASSERT(element_mass > 0, "It looks like the element mass is 0.0");
+        Discret::Elements::for_each_gauss_point(nodal_coordinates, element_properties_,
+            mass_matrix_integration_,
+            [&](const Core::LinAlg::Tensor<double, 2>& xi,
+                const ShapeFunctionsAndDerivatives<celltype>& shape_functions,
+                const JacobianMapping<celltype>& jacobian_mapping, const double integration_factor,
+                const int gp)
+            {
+              add_mass_matrix(
+                  shape_functions, integration_factor, element_mass / element_volume, *mass);
+            });
+      }
+      return;
+    }
+  }
+
   double element_mass = 0.0;
   double element_volume = 0.0;
   const double* total_time =
       params.isParameter("total time") ? &params.get<double>("total time") : nullptr;
   const double* time_step_size =
       params.isParameter("delta time") ? &params.get<double>("delta time") : nullptr;
+
   Discret::Elements::for_each_gauss_point(nodal_coordinates, element_properties_,
       stiffness_matrix_integration_,
       [&](const Core::LinAlg::Tensor<double, Internal::num_dim<celltype>>& xi,
@@ -333,6 +480,47 @@ void Discret::Elements::SolidEleCalc<celltype, ElementFormulation>::update(
       params.isParameter("total time") ? &params.get<double>("total time") : nullptr;
   const double* time_step_size =
       params.isParameter("delta time") ? &params.get<double>("delta time") : nullptr;
+
+  if constexpr (Core::FE::dim<celltype> == 2 &&
+                is_supported_axisymmetric_formulation<celltype, ElementFormulation>)
+  {
+    if (element_properties_.plane_assumption == PlaneAssumption::axisymmetric)
+    {
+      constexpr bool linear_kinematics =
+          is_axisymmetric_linear_kinematics<celltype, ElementFormulation>;
+      Discret::Elements::for_each_gauss_point(nodal_coordinates, element_properties_,
+          stiffness_matrix_integration_,
+          [&](const Core::LinAlg::Tensor<double, 2>& xi,
+              const ShapeFunctionsAndDerivatives<celltype>& shape_functions,
+              const JacobianMapping<celltype>& jacobian_mapping, const double integration_factor,
+              const int gp)
+          {
+            const AxisymmetricKinematics<celltype> kinematics = evaluate_axisymmetric_kinematics(
+                nodal_coordinates, shape_functions, jacobian_mapping, linear_kinematics);
+            Core::LinAlg::Tensor<double, 3, 3> constitutive_deformation_gradient =
+                kinematics.deformation_gradient;
+            if constexpr (is_axisymmetric_eas_formulation<celltype, ElementFormulation>)
+            {
+              constitutive_deformation_gradient =
+                  evaluate_axisymmetric_eas_kinematics<celltype, EasType::eastype_q4_4>(
+                      nodal_coordinates, preparation_data, xi, shape_functions, jacobian_mapping,
+                      history_data_.global_history.eas_iteration_data)
+                      .enhanced_deformation_gradient;
+            }
+            auto gp_ref_coord = evaluate_reference_coordinate<celltype>(
+                nodal_coordinates.reference_coordinates, shape_functions.shapefunctions_);
+            Mat::EvaluationContext<2> context{.total_time = total_time,
+                .time_step_size = time_step_size,
+                .xi = &xi,
+                .ref_coords = &gp_ref_coord};
+            update_axisymmetric_material<celltype>(
+                solid_material, constitutive_deformation_gradient, params, context, gp, ele.id());
+          });
+      solid_material.update();
+      return;
+    }
+  }
+
   Discret::Elements::for_each_gauss_point(nodal_coordinates, element_properties_,
       stiffness_matrix_integration_,
       [&](const Core::LinAlg::Tensor<double, Internal::num_dim<celltype>>& xi,
@@ -381,6 +569,47 @@ double Discret::Elements::SolidEleCalc<celltype, ElementFormulation>::calculate_
       params.isParameter("total time") ? &params.get<double>("total time") : nullptr;
   const double* time_step_size =
       params.isParameter("delta time") ? &params.get<double>("delta time") : nullptr;
+
+  if constexpr (Core::FE::dim<celltype> == 2 &&
+                is_supported_axisymmetric_formulation<celltype, ElementFormulation>)
+  {
+    if (element_properties_.plane_assumption == PlaneAssumption::axisymmetric)
+    {
+      constexpr bool linear_kinematics =
+          is_axisymmetric_linear_kinematics<celltype, ElementFormulation>;
+      Discret::Elements::for_each_gauss_point(nodal_coordinates, element_properties_,
+          stiffness_matrix_integration_,
+          [&](const Core::LinAlg::Tensor<double, 2>& xi,
+              const ShapeFunctionsAndDerivatives<celltype>& shape_functions,
+              const JacobianMapping<celltype>& jacobian_mapping, const double integration_factor,
+              const int gp)
+          {
+            const AxisymmetricKinematics<celltype> kinematics = evaluate_axisymmetric_kinematics(
+                nodal_coordinates, shape_functions, jacobian_mapping, linear_kinematics);
+            Core::LinAlg::SymmetricTensor<double, 3, 3> constitutive_gl_strain =
+                kinematics.green_lagrange_strain;
+            if constexpr (is_axisymmetric_eas_formulation<celltype, ElementFormulation>)
+            {
+              constitutive_gl_strain =
+                  evaluate_axisymmetric_eas_kinematics<celltype, EasType::eastype_q4_4>(
+                      nodal_coordinates, preparation_data, xi, shape_functions, jacobian_mapping,
+                      history_data_.global_history.eas_iteration_data)
+                      .enhanced_gl;
+            }
+            auto gp_ref_coord = evaluate_reference_coordinate<celltype>(
+                nodal_coordinates.reference_coordinates, shape_functions.shapefunctions_);
+            Mat::EvaluationContext<2> context{.total_time = total_time,
+                .time_step_size = time_step_size,
+                .xi = &xi,
+                .ref_coords = &gp_ref_coord};
+            intenergy += evaluate_axisymmetric_material_strain_energy<celltype>(
+                             solid_material, constitutive_gl_strain, context, gp, ele.id()) *
+                         integration_factor;
+          });
+      return intenergy;
+    }
+  }
+
   Discret::Elements::for_each_gauss_point(nodal_coordinates, element_properties_,
       stiffness_matrix_integration_,
       [&](const Core::LinAlg::Tensor<double, Core::FE::dim<celltype>>& xi,
@@ -439,6 +668,66 @@ void Discret::Elements::SolidEleCalc<celltype, ElementFormulation>::calculate_st
       params.isParameter("total time") ? &params.get<double>("total time") : nullptr;
   const double* time_step_size =
       params.isParameter("delta time") ? &params.get<double>("delta time") : nullptr;
+
+  if constexpr (Core::FE::dim<celltype> == 2 &&
+                is_supported_axisymmetric_formulation<celltype, ElementFormulation>)
+  {
+    if (element_properties_.plane_assumption == PlaneAssumption::axisymmetric)
+    {
+      constexpr bool linear_kinematics =
+          is_axisymmetric_linear_kinematics<celltype, ElementFormulation>;
+      Discret::Elements::for_each_gauss_point(nodal_coordinates, element_properties_,
+          stiffness_matrix_integration_,
+          [&](const Core::LinAlg::Tensor<double, 2>& xi,
+              const ShapeFunctionsAndDerivatives<celltype>& shape_functions,
+              const JacobianMapping<celltype>& jacobian_mapping, const double integration_factor,
+              const int gp)
+          {
+            const AxisymmetricKinematics<celltype> kinematics = evaluate_axisymmetric_kinematics(
+                nodal_coordinates, shape_functions, jacobian_mapping, linear_kinematics);
+            Core::LinAlg::Tensor<double, 3, 3> constitutive_deformation_gradient =
+                kinematics.deformation_gradient;
+            Core::LinAlg::SymmetricTensor<double, 3, 3> constitutive_gl_strain =
+                kinematics.green_lagrange_strain;
+            if constexpr (is_axisymmetric_eas_formulation<celltype, ElementFormulation>)
+            {
+              const auto eas_kinematics =
+                  evaluate_axisymmetric_eas_kinematics<celltype, EasType::eastype_q4_4>(
+                      nodal_coordinates, preparation_data, xi, shape_functions, jacobian_mapping,
+                      history_data_.global_history.eas_iteration_data);
+              constitutive_deformation_gradient = eas_kinematics.enhanced_deformation_gradient;
+              constitutive_gl_strain = eas_kinematics.enhanced_gl;
+            }
+            auto gp_ref_coord = evaluate_reference_coordinate<celltype>(
+                nodal_coordinates.reference_coordinates, shape_functions.shapefunctions_);
+            Mat::EvaluationContext<2> context{.total_time = total_time,
+                .time_step_size = time_step_size,
+                .xi = &xi,
+                .ref_coords = &gp_ref_coord};
+            const Stress<celltype> stress = evaluate_axisymmetric_material_stress<celltype>(
+                solid_material, constitutive_deformation_gradient, constitutive_gl_strain, params,
+                context, gp, ele.id());
+
+            Core::LinAlg::Tensor<double, 2, 2> in_plane_deformation_gradient{};
+            Core::LinAlg::SymmetricTensor<double, 2, 2> in_plane_strain{};
+            for (int i = 0; i < 2; ++i)
+              for (int j = 0; j < 2; ++j)
+                in_plane_deformation_gradient(i, j) = constitutive_deformation_gradient(i, j);
+            for (int i = 0; i < 2; ++i)
+              for (int j = i; j < 2; ++j) in_plane_strain(i, j) = constitutive_gl_strain(i, j);
+
+            assemble_strain_type_to_matrix_row<celltype>(element_properties_, in_plane_strain,
+                stress, in_plane_deformation_gradient, strainIO.type, strain_data, gp);
+            assemble_stress_type_to_matrix_row(element_properties_, in_plane_deformation_gradient,
+                stress, stressIO.type, stress_data, gp);
+          });
+
+      serialize(stress_data, serialized_stress_data);
+      serialize(strain_data, serialized_strain_data);
+      return;
+    }
+  }
+
   Discret::Elements::for_each_gauss_point(nodal_coordinates, element_properties_,
       stiffness_matrix_integration_,
       [&](const Core::LinAlg::Tensor<double, Core::FE::dim<celltype>>& xi,
