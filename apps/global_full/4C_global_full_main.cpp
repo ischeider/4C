@@ -112,7 +112,17 @@ int main(int argc, char* argv[])
 
   Core::Communication::barrier(communicators.global_comm());
 
-  if (arguments.parameters)
+
+  if (arguments.version)
+  {
+    if (Core::Communication::my_mpi_rank(communicators.global_comm()) == 0)
+    {
+      std::cout << "4C version " FOUR_C_VERSION_FULL << '\n';
+      std::cout << "4C input version " FOUR_C_INPUT_VERSION_FULL << '\n';
+      std::cout << "git SHA1 " << VersionControl::git_hash << '\n';
+    }
+  }
+  else if (arguments.parameters)
   {
     if (Core::Communication::my_mpi_rank(communicators.local_comm()) == 0)
     {
@@ -268,6 +278,7 @@ CommandlineArguments parse_command_line(int argc, char** argv)
   CLI::App cli_app{"4C - Multiphysics \nComprehensive Computational Community Code"};
   cli_app.formatter(std::make_shared<SpacedFormatter>());
   CommandlineArguments arguments;
+  cli_app.add_flag("-v,--version", arguments.version, "Print out the version information.");
   cli_app.add_flag("-p,--parameters", arguments.parameters,
       "Dumps information about the parameters for consumption by additional tools.");
   cli_app.add_flag("-i,--interactive", arguments.interactive,
@@ -475,17 +486,17 @@ CommandlineArguments parse_command_line(int argc, char** argv)
     std::exit(cli_app.exit(e));
   }
 
-  if (!arguments.parameters)
+  if (!arguments.parameters && !arguments.version)
   {
     if (primary_input.empty() || primary_output.empty())
     {
       FOUR_C_THROW("Please provide both <input> and <output> arguments.");
     }
+    arguments.io_pairs = build_io_pairs(io_pairs, primary_input, primary_output);
+    validate_argument_cross_compatibility(arguments);
   }
-
-  arguments.io_pairs = build_io_pairs(io_pairs, primary_input, primary_output);
-  validate_argument_cross_compatibility(arguments);
   assign_group_layout(arguments.n_groups, arguments.group_layout);
+
   return arguments;
 }
 

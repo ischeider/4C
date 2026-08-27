@@ -39,6 +39,7 @@ struct CommandlineArguments
 {
   bool help = false;
   int n_groups = 1;
+  bool version = false;
   bool parameters = false;
   std::vector<int> group_layout = {};
   Core::Communication::NestedParallelismType nptype =

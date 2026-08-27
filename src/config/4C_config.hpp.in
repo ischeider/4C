@@ -14,6 +14,12 @@
 #define FOUR_C_VERSION_MINOR @FOUR_C_VERSION_MINOR@
 #define FOUR_C_VERSION_PATCH @FOUR_C_VERSION_PATCH@
 
+// The input version is used to determine the compatibility of input files.
+#define FOUR_C_INPUT_VERSION_FULL "@FOUR_C_INPUT_VERSION_FULL@"
+#define FOUR_C_INPUT_VERSION_MAJOR @FOUR_C_INPUT_VERSION_MAJOR@
+#define FOUR_C_INPUT_VERSION_MINOR @FOUR_C_INPUT_VERSION_MINOR@
+#define FOUR_C_INPUT_VERSION_PATCH @FOUR_C_INPUT_VERSION_PATCH@
+
 // This flag guards assertions and special checks that are often expensive and should only run when debugging.
 #cmakedefine FOUR_C_ENABLE_ASSERTIONS
 

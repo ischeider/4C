@@ -161,6 +161,7 @@ void Global::emit_general_metadata(Core::IO::YamlNodeRef node)
     metadata |= ryml::MAP;
     metadata["commit_hash"] << VersionControl::git_hash;
     metadata["version"] << FOUR_C_VERSION_FULL;
+    metadata["input_version"] << FOUR_C_INPUT_VERSION_FULL;
     metadata["description_section_name"] = Core::IO::InputFile::description_section_name;
   }
 
