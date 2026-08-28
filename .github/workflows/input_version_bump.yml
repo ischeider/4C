@@ -1,0 +1,87 @@
+name: input version bump
+
+# Assigns the real version number to a pending input file migration fragment
+# (input_version/migrations/{patch,minor,major}_upgrade.yaml) once it has actually been
+# merged to main, and updates input_version/INPUT_VERSION accordingly.
+#
+# This intentionally does NOT run as part of the merge queue's `merge_group` check: GitHub's
+# merge queue only fast-forwards the *original* PR commits onto main, so any commit made
+# only against the ephemeral merge_group ref would be discarded. Instead, this runs
+# afterward, triggered by the push to main itself.
+on:
+  push:
+    branches:
+      - main
+
+# Serialize bump runs so that two merges landing close together can never race on renaming
+# the same reserved fragment file or reading a stale INPUT_VERSION. Combined with the merge
+# queue (which already serializes merges to main one at a time), each run here only starts
+# after the previous run's push has completed, so it always sees the fresh state.
+concurrency:
+  group: input-version-bump
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    # Skip on forks: this workflow pushes directly to main and requires a branch protection
+    # exception for the bot identity used below; forks won't have that exception configured.
+    if: github.repository == '4C-multiphysics/4C'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Python environment
+        run: |
+          ./utilities/set_up_dev_env.sh
+
+      - name: Refresh to the latest main
+        # Defense in depth: make sure we operate on the most recent commit, even though the
+        # concurrency group above should already guarantee this.
+        run: git pull --ff-only origin main
+
+      - name: Bump input version
+        id: bump
+        run: |
+          source ./utilities/python-venv/bin/activate
+          bump-input-version --repo-root "${GITHUB_WORKSPACE}"
+
+      - name: Commit and push
+        if: steps.bump.outputs.bumped == 'true'
+        env:
+          OLD_VERSION: ${{ steps.bump.outputs.old_version }}
+          NEW_VERSION: ${{ steps.bump.outputs.new_version }}
+          FRAGMENT: ${{ steps.bump.outputs.fragment }}
+          NEW_FILENAME: ${{ steps.bump.outputs.new_filename }}
+        run: |
+          git config user.name "4C bot"
+          git config user.email "4C-bot@users.noreply.github.com"
+          git add input_version/
+
+          COMMIT_MESSAGE="Bump input version: ${OLD_VERSION} -> ${NEW_VERSION}
+
+          Renamed input_version/migrations/${FRAGMENT} to input_version/migrations/${NEW_FILENAME}."
+          git commit -m "$COMMIT_MESSAGE"
+
+          # Retry with rebase a handful of times, in case a push to main from an unrelated
+          # source (i.e. not this workflow) landed in between our checkout and push. This is
+          # only a defensive fallback: the concurrency group above already prevents two runs
+          # of *this* workflow from racing with each other.
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            echo "Push attempt ${attempt} failed, fetching and rebasing before retrying..."
+            git fetch origin main
+            git rebase origin/main
+          done
+
+          echo "::error::Failed to push the input version bump after multiple attempts."
+          exit 1

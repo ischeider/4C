@@ -176,6 +176,13 @@ repos:
         entry: utilities/python-venv/bin/check-companion-test-files
         require_serial: true # To give a non duplicated error output
 
+      - id: input-version-migration
+        name: Input file migration fragment
+        description: "Check that pending input file migration fragments are valid and unique"
+        language: python
+        files: 'input_version/migrations/.*\.yaml$'
+        entry: utilities/python-venv/bin/check-input-version-migration
+
       - id: non-ascii-chars
         name: Non-ASCII characters
         language: system
