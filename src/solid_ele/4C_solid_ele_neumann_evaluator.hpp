@@ -74,6 +74,9 @@ namespace Discret::Elements
 
   /*!
    * @brief Evaluate pseudo-orthopressure or follower orthopressure on a plane solid boundary line.
+   *
+   * @note Spatially varying pressure functions are evaluated at quadrature-point coordinates. For
+   * follower orthopressure, their spatial derivatives are not included in the load linearization.
    */
   void evaluate_normal_pressure_by_element(Core::Elements::Element& element,
       const Core::FE::Discretization& discretization, const Core::Conditions::Condition& condition,

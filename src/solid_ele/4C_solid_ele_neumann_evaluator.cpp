@@ -36,11 +36,7 @@ namespace
     const auto& onoff = condition.parameters().get<std::vector<int>>("ONOFF");
     const auto& values = condition.parameters().get<std::vector<double>>("VAL");
     const auto& function_ids = condition.parameters().get<std::vector<std::optional<int>>>("FUNCT");
-    FOUR_C_ASSERT_ALWAYS(onoff.size() >= 2 && values.size() >= 2 && function_ids.size() >= 2,
-        "A two-dimensional pressure condition requires at least two entries in ONOFF, VAL, and "
-        "FUNCT.");
-    FOUR_C_ASSERT_ALWAYS(
-        onoff[0] == 1 && onoff[1] == 0, "Normal pressure must be activated on the first dof only.");
+    FOUR_C_ASSERT_ALWAYS(onoff[0] == 1, "Normal pressure must be activated on the first dof.");
 
     const auto displacement = discretization.get_state(displacement_state);
     FOUR_C_ASSERT_ALWAYS(
@@ -57,20 +53,24 @@ namespace
 
     const auto integration = Core::FE::create_gauss_integration<celltype>(
         Discret::Elements::get_gauss_rule_stiffness_matrix<celltype>());
+    Core::Elements::ElementNodes<celltype, 2> nodes{.coordinates = current_coordinates};
+    Core::LinAlg::Matrix<2, 1> current_coordinate;
+
+    const Core::Utils::FunctionOfSpaceTime* function =
+        (function_ids[0].has_value() && function_ids[0].value() > 0)
+            ? &Global::Problem::instance()->function_by_id<Core::Utils::FunctionOfSpaceTime>(
+                  function_ids[0].value())
+            : nullptr;
+
     for (int gp = 0; gp < integration.num_points(); ++gp)
     {
       const auto xi = Core::Elements::evaluate_parameter_coordinate<celltype>(integration, gp);
-      Core::Elements::ElementNodes<celltype, 2> nodes{.coordinates = current_coordinates};
       const auto shape = Core::Elements::evaluate_shape_functions_and_derivs<celltype>(xi, nodes);
 
-      Core::LinAlg::Matrix<2, 1> current_coordinate;
       current_coordinate.multiply_tn(current_coordinates, shape.values);
       const double function_factor =
-          function_ids[0].has_value() && function_ids[0].value() > 0
-              ? Global::Problem::instance()
-                    ->function_by_id<Core::Utils::FunctionOfSpaceTime>(function_ids[0].value())
-                    .evaluate(current_coordinate.as_span(), total_time, 0)
-              : 1.0;
+          function != nullptr ? function->evaluate(current_coordinate.as_span(), total_time, 0)
+                              : 1.0;
 
       Discret::Elements::add_normal_pressure_load<celltype>(shape, current_coordinates,
           values[0] * function_factor * integration.weight(gp), reference_thickness,

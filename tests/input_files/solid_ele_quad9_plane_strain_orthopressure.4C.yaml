@@ -43,10 +43,10 @@ DESIGN LINE DIRICH CONDITIONS:
     FUNCT: [0, 0]
 DESIGN LINE NEUMANN CONDITIONS:
   - E: 3
-    NUMDOF: 2
-    ONOFF: [1, 0]
-    VAL: [-10.0, 0.0]
-    FUNCT: [1, 0]
+    NUMDOF: 1
+    ONOFF: [1]
+    VAL: [-10.0]
+    FUNCT: [1]
     TYPE: "orthopressure"
 DLINE-NODE TOPOLOGY:
   - "NODE 1 DLINE 1"
