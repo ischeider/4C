@@ -157,18 +157,18 @@ namespace Mat
    private:
     Mat::PAR::PlasticGTN* params_;
     // declare the stress and strain variables.
-    std::vector<Core::LinAlg::Matrix<3, 3>> elastic_strain_n_;
-    std::vector<Core::LinAlg::Matrix<3, 3>> elastic_strain_n1_;
-    std::vector<Core::LinAlg::Matrix<3, 3>> strain_n_;
-    std::vector<Core::LinAlg::Matrix<3, 3>> strain_n1_;
-    std::vector<Core::LinAlg::Matrix<3, 3>> stress_n_;
-    std::vector<Core::LinAlg::Matrix<3, 3>> stress_n1_;
+    std::vector<Core::LinAlg::SymmetricTensor<double, 3, 3>> elastic_strain_n_;
+    std::vector<Core::LinAlg::SymmetricTensor<double, 3, 3>> elastic_strain_n1_;
+    std::vector<Core::LinAlg::SymmetricTensor<double, 3, 3>> strain_n_;
+    std::vector<Core::LinAlg::SymmetricTensor<double, 3, 3>> strain_n1_;
+    std::vector<Core::LinAlg::SymmetricTensor<double, 3, 3>> stress_n_;
+    std::vector<Core::LinAlg::SymmetricTensor<double, 3, 3>> stress_n1_;
     std::vector<double> f_n_;
     std::vector<double> f_n1_;
     std::vector<double> epbar_n_;
     std::vector<double> epbar_n1_;
     const Core::Utils::FunctionOfAnything* hardening_function_{nullptr};
-    bool isinit_;
+    bool isinit_{false};
 
     /**************************************************
                 PLASTIC CALCULATION ROUTINES
@@ -294,10 +294,10 @@ namespace Mat
      * @param[in] p current hydrostatic pressure
      * @param[in] q current deviatoric pressure
      * @param[in] sigmastar current effective scalar stress
-     * @param[in] fstar current effective void (damage)
+     * @param[in] f current void (damage)
      */
     double compute_dphi_df(
-        const double p, const double q, const double sigmastar, const double fstar) const;
+        const double p, const double q, const double sigmastar, const double f) const;
 
     /*!
      * @brief Returns the partial derivative of yield function w.r.t effective scalar stress

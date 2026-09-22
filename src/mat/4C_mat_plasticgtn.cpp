@@ -10,18 +10,10 @@
 #include "4C_comm_pack_helpers.hpp"
 #include "4C_comm_parobject.hpp"
 #include "4C_global_data.hpp"
-#include "4C_linalg_fixedsizematrix.hpp"
-#include "4C_linalg_fixedsizematrix_generators.hpp"
-#include "4C_linalg_fixedsizematrix_tensor_products.hpp"
-#include "4C_linalg_fixedsizematrix_voigt_notation.hpp"
-#include "4C_linalg_four_tensor.hpp"
-#include "4C_linalg_four_tensor_generators.hpp"
-#include "4C_linalg_tensor_conversion.hpp"
-#include "4C_linalg_utils_densematrix_inverse.hpp"
+#include "4C_linalg_fixedsizematrix_solver.hpp"
+#include "4C_linalg_tensor_generators.hpp"
 #include "4C_mat_material_factory.hpp"
 #include "4C_mat_par_bundle.hpp"
-#include "4C_mat_service.hpp"
-#include "4C_mat_stvenantkirchhoff.hpp"
 #include "4C_material_base.hpp"
 #include "4C_material_parameter_base.hpp"
 #include "4C_structure_new_input.hpp"
@@ -84,24 +76,20 @@ void Mat::PlasticGTN::pack(Core::Communication::PackBuffer& data) const
   int matid = -1;
   if (params_ != nullptr) matid = params_->id();
   add_to_pack(data, matid);
-  int histsize = initialized() ? elastic_strain_n_.size() : 0;
-  add_to_pack(data, histsize);
-  for (int var = 0; var < histsize; ++var)
-  {
-    // insert last converged states
-    add_to_pack(data, elastic_strain_n_.at(var));
-    add_to_pack(data, strain_n_.at(var));
-    add_to_pack(data, stress_n_.at(var));
-    add_to_pack(data, f_n_.at(var));
-    add_to_pack(data, epbar_n_.at(var));
 
-    // insert current iteration states
-    add_to_pack(data, elastic_strain_n1_.at(var));
-    add_to_pack(data, strain_n1_.at(var));
-    add_to_pack(data, stress_n1_.at(var));
-    add_to_pack(data, f_n1_.at(var));
-    add_to_pack(data, epbar_n1_.at(var));
-  }
+  // insert last converged states
+  add_to_pack(data, elastic_strain_n_);
+  add_to_pack(data, strain_n_);
+  add_to_pack(data, stress_n_);
+  add_to_pack(data, f_n_);
+  add_to_pack(data, epbar_n_);
+
+  // insert current iteration states
+  add_to_pack(data, elastic_strain_n1_);
+  add_to_pack(data, strain_n1_);
+  add_to_pack(data, stress_n1_);
+  add_to_pack(data, f_n1_);
+  add_to_pack(data, epbar_n1_);
 }
 
 void Mat::PlasticGTN::unpack(Core::Communication::UnpackBuffer& buffer)
@@ -137,52 +125,21 @@ void Mat::PlasticGTN::unpack(Core::Communication::UnpackBuffer& buffer)
       }
     }
 
-    int histsize;
-    extract_from_pack(buffer, histsize);
+    // last converged states are unpacked
+    extract_from_pack(buffer, elastic_strain_n_);
+    extract_from_pack(buffer, strain_n_);
+    extract_from_pack(buffer, stress_n_);
+    extract_from_pack(buffer, f_n_);
+    extract_from_pack(buffer, epbar_n_);
 
-    if (histsize == 0) isinit_ = false;
+    // current iteration states are unpacked
+    extract_from_pack(buffer, elastic_strain_n1_);
+    extract_from_pack(buffer, strain_n1_);
+    extract_from_pack(buffer, stress_n1_);
+    extract_from_pack(buffer, f_n1_);
+    extract_from_pack(buffer, epbar_n1_);
 
-    elastic_strain_n_ = std::vector<Core::LinAlg::Matrix<3, 3>>();
-    elastic_strain_n1_ = std::vector<Core::LinAlg::Matrix<3, 3>>();
-    strain_n_ = std::vector<Core::LinAlg::Matrix<3, 3>>();
-    strain_n1_ = std::vector<Core::LinAlg::Matrix<3, 3>>();
-    stress_n_ = std::vector<Core::LinAlg::Matrix<3, 3>>();
-    stress_n1_ = std::vector<Core::LinAlg::Matrix<3, 3>>();
-    f_n_ = std::vector<double>();
-    f_n1_ = std::vector<double>();
-    epbar_n_ = std::vector<double>();
-    epbar_n1_ = std::vector<double>();
-    for (int var = 0; var < histsize; ++var)
-    {
-      Core::LinAlg::Matrix<3, 3> tmp_vector(Core::LinAlg::Initialization::zero);
-      double tmp_scalar = 0.0;
-
-      // last converged states are unpacked
-      extract_from_pack(buffer, tmp_vector);
-      elastic_strain_n_.push_back(tmp_vector);
-      extract_from_pack(buffer, tmp_vector);
-      strain_n_.push_back(tmp_vector);
-      extract_from_pack(buffer, tmp_vector);
-      stress_n_.push_back(tmp_vector);
-
-      extract_from_pack(buffer, tmp_scalar);
-      f_n_.push_back(tmp_scalar);
-      extract_from_pack(buffer, tmp_scalar);
-      epbar_n_.push_back(tmp_scalar);
-
-      // current iteration states are unpacked
-      extract_from_pack(buffer, tmp_vector);
-      elastic_strain_n1_.push_back(tmp_vector);
-      extract_from_pack(buffer, tmp_vector);
-      strain_n1_.push_back(tmp_vector);
-      extract_from_pack(buffer, tmp_vector);
-      stress_n1_.push_back(tmp_vector);
-
-      extract_from_pack(buffer, tmp_scalar);
-      f_n1_.push_back(tmp_scalar);
-      extract_from_pack(buffer, tmp_scalar);
-      epbar_n1_.push_back(tmp_scalar);
-    }
+    isinit_ = !elastic_strain_n_.empty();
   }
 }
 
@@ -241,38 +198,37 @@ void Mat::PlasticGTN::evaluate(const Core::LinAlg::Tensor<double, 3, 3>* defgrad
     Core::LinAlg::SymmetricTensor<double, 3, 3>& stress,
     Core::LinAlg::SymmetricTensor<double, 3, 3, 3, 3>& cmat, int gp, int eleGID)
 {
-  Core::LinAlg::Matrix<6, 1> stress_view = Core::LinAlg::make_stress_like_voigt_view(stress);
-  Core::LinAlg::Matrix<6, 6> cmat_view = Core::LinAlg::make_stress_like_voigt_view(cmat);
-
   const double TOL = params_->tol_;
 
   // save the strain
   auto& strain_n1 = strain_n1_.at(gp);
-  Core::LinAlg::Voigt::VoigtUtils<Core::LinAlg::Voigt::NotationType::stress>::vector_to_matrix(
-      Core::LinAlg::make_stress_like_voigt_view(glstrain), strain_n1);
+  strain_n1 = glstrain;
 
   // compute incremental strain
-  Core::LinAlg::Matrix<3, 3> incremental_strain;
-  incremental_strain.update(-1.0, strain_n_.at(gp), 1.0, strain_n1);
+  const Core::LinAlg::SymmetricTensor<double, 3, 3> incremental_strain =
+      strain_n1 - strain_n_.at(gp);
 
   // compute the elastic tensor
   const double E = params_->youngs_;
   const double NU = params_->poissonratio_;
-  Core::LinAlg::FourTensor<3> Ce;
-  Mat::setup_linear_isotropic_elastic_tensor(Ce, E, NU);
+  const double G = 0.5 * E / (1 + NU);
+  const double K = 1.0 / 3 * E / (1 - 2 * NU);
+  const double lambda = K - 2.0 / 3.0 * G;
+  constexpr auto eye = Core::LinAlg::TensorGenerators::identity<double, 3, 3>;
+  constexpr auto symmetric_identity =
+      Core::LinAlg::TensorGenerators::symmetric_identity<double, 3, 3, 3, 3>;
+  constexpr auto deviatoric_projection =
+      symmetric_identity - 1.0 / 3.0 * Core::LinAlg::dyadic(eye, eye);
+  const Core::LinAlg::SymmetricTensor<double, 3, 3, 3, 3> Ce =
+      2.0 * G * symmetric_identity + lambda * Core::LinAlg::dyadic(eye, eye);
 
   // compute trial stress
-  Core::LinAlg::Matrix<3, 3, double> stress_trial(stress_n_.at(gp));
-  Core::LinAlg::FourTensorOperations::add_contraction_matrix_four_tensor(
-      stress_trial, 1.0, Ce, incremental_strain);
-
-  const double p_trial = 1.0 / 3 * (stress_trial(0, 0) + stress_trial(1, 1) + stress_trial(2, 2));
-  Core::LinAlg::Matrix<3, 3, double> s_trial;
-  s_trial.update(1.0, stress_trial, 0.0);
-  s_trial(0, 0) -= p_trial;
-  s_trial(1, 1) -= p_trial;
-  s_trial(2, 2) -= p_trial;
-  const double q_trial = std::sqrt(1.5) * s_trial.norm2();
+  const Core::LinAlg::SymmetricTensor<double, 3, 3> stress_trial =
+      stress_n_.at(gp) + Core::LinAlg::ddot(Ce, incremental_strain);
+  const double p_trial = Core::LinAlg::trace(stress_trial) / 3.0;
+  const Core::LinAlg::SymmetricTensor<double, 3, 3> s_trial = stress_trial - p_trial * eye;
+  const double s_trial_norm = std::sqrt(Core::LinAlg::ddot(s_trial, s_trial));
+  const double q_trial = std::sqrt(1.5) * s_trial_norm;
 
   // check the yield condition
   const double epbar_n = epbar_n_.at(gp);
@@ -280,40 +236,28 @@ void Mat::PlasticGTN::evaluate(const Core::LinAlg::Tensor<double, 3, 3>* defgrad
   const double R_n = this->yield_value(epbar_n);
   const double fstar_n = this->compute_fstar(f_n);
   const double Phi = this->compute_phi(p_trial, q_trial, R_n, fstar_n);
-  double yield_cond = Phi;
-  if (R_n != 0.0) yield_cond = Phi / std::abs(R_n);
-
-  bool is_yielded;
-  if (yield_cond > TOL)
-    is_yielded = true;
-  else
-    is_yielded = false;
+  const double yield_cond = R_n == 0.0 ? Phi : Phi / std::abs(R_n);
+  const bool is_yielded = yield_cond > TOL;
 
   /** plastic integration **/
   auto& stress_n1 = stress_n1_.at(gp);
   auto& f_n1 = f_n1_.at(gp);
   auto& epbar_n1 = epbar_n1_.at(gp);
   auto& elastic_strain_n1 = elastic_strain_n1_.at(gp);
-  double dlambda;
 
   if (!is_yielded)  // elastic state
   {
-    dlambda = 0.0;
-    stress_n1.update(1.0, stress_trial, 0.0);
+    stress_n1 = stress_trial;
     f_n1 = f_n;
     epbar_n1 = epbar_n;
-    elastic_strain_n1.update(1.0, elastic_strain_n_.at(gp), 1.0, incremental_strain);
-
-    Core::LinAlg::Voigt::VoigtUtils<Core::LinAlg::Voigt::NotationType::stress>::matrix_to_vector(
-        stress_n1, stress_view);
-    Core::LinAlg::Voigt::setup_6x6_voigt_matrix_from_four_tensor(cmat_view, Ce);
+    elastic_strain_n1 = elastic_strain_n_.at(gp) + incremental_strain;
+    stress = stress_n1;
+    cmat = Ce;
   }
   else  // plastic state
   {
     // local iteration to determine p_n1, q_n1, sigmastar, f and dlambda
-    const int max_local_iters = 30;
-    double p_n1, q_n1, sigmastar;
-
+    constexpr int max_local_iters = 30;
     auto local_system_evaluator = [this, p_trial, q_trial, f_n, epbar_n](
                                       const Core::LinAlg::Matrix<5, 1>& x)
         -> std::pair<Core::LinAlg::Matrix<5, 1>, Core::LinAlg::Matrix<5, 5>>
@@ -334,60 +278,56 @@ void Mat::PlasticGTN::evaluate(const Core::LinAlg::Tensor<double, 3, 3>* defgrad
       return {h, dh};
     };
 
-    double sigmastar_n = this->yield_value(epbar_n);
-    Core::LinAlg::Matrix<5, 1> x;
+    Core::LinAlg::Matrix<5, 1> initial_guess;
 
-    x(0) = p_trial;
-    x(1) = q_trial;
-    x(2) = this->yield_value(epbar_n);
-    x(3) = f_n;
-    x(4) = 0.0;
+    initial_guess(0) = p_trial;
+    initial_guess(1) = q_trial;
+    initial_guess(2) = R_n;
+    initial_guess(3) = f_n;
+    initial_guess(4) = 0.0;
 
-    x = Core::Utils::solve_local_newton(
-        local_system_evaluator, x, TOL * sigmastar_n, max_local_iters);
+    auto [x, dh] = Core::Utils::solve_local_newton_and_return_jacobian(
+        local_system_evaluator, initial_guess, TOL * R_n, max_local_iters);
 
-    p_n1 = x(0);
-    q_n1 = x(1);
-    sigmastar = x(2);
+    const double p_n1 = x(0);
+    const double q_n1 = x(1);
+    const double sigmastar = x(2);
     f_n1 = x(3);
-    dlambda = x(4);
+    const double dlambda = x(4);
     epbar_n1 = epbar_n + dlambda;
 
     // update the stress
-    Core::LinAlg::Matrix<3, 3, double> eye = Core::LinAlg::identity_matrix<3, double>();
-    Core::LinAlg::Matrix<3, 3, double> nhat;
-    nhat.update(1.0 / s_trial.norm2(), s_trial);
-    stress_n1.update(sqrt(2.0 / 3) * q_n1, nhat, 0.0);
-    stress_n1.update(p_n1, eye, 1.0);
-    Core::LinAlg::Voigt::VoigtUtils<Core::LinAlg::Voigt::NotationType::stress>::matrix_to_vector(
-        stress_n1, stress_view);
+    const Core::LinAlg::SymmetricTensor<double, 3, 3> nhat = s_trial / s_trial_norm;
+    stress_n1 = sqrt(2.0 / 3) * q_n1 * nhat + p_n1 * eye;
+    stress = stress_n1;
 
     // update elastic strain
-    double fstar = this->compute_fstar(f_n1);
-    double dphi_dsigmastar = this->compute_dphi_dsigmastar(p_n1, q_n1, sigmastar, fstar);
-    double dsigmastar_dp = -this->compute_dphi_dp(p_n1, q_n1, sigmastar, fstar) / dphi_dsigmastar;
-    double dsigmastar_dq = -this->compute_dphi_dq(p_n1, q_n1, sigmastar, fstar) / dphi_dsigmastar;
-    elastic_strain_n1.update(1.0, elastic_strain_n_.at(gp), 1.0, incremental_strain);
-    elastic_strain_n1.update(-sqrt(1.5) * dlambda * (1.0 - f_n1) * dsigmastar_dq, nhat, 1.0);
-    elastic_strain_n1.update(-dlambda * (1.0 - f_n1) * dsigmastar_dp / 3, eye, 1.0);
+    const double fstar = this->compute_fstar(f_n1);
+    const double dphi_dsigmastar = this->compute_dphi_dsigmastar(p_n1, q_n1, sigmastar, fstar);
+    const double dsigmastar_dp =
+        -this->compute_dphi_dp(p_n1, q_n1, sigmastar, fstar) / dphi_dsigmastar;
+    const double dsigmastar_dq =
+        -this->compute_dphi_dq(p_n1, q_n1, sigmastar, fstar) / dphi_dsigmastar;
+    elastic_strain_n1 = elastic_strain_n_.at(gp) + incremental_strain -
+                        sqrt(1.5) * dlambda * (1.0 - f_n1) * dsigmastar_dq * nhat -
+                        dlambda * (1.0 - f_n1) * dsigmastar_dp / 3.0 * eye;
 
     /* update the (consistent) tangent */
-    const double G = 0.5 * E / (1 + NU);
-    const double K = 1.0 / 3 * E / (1 - 2 * NU);
+    Core::LinAlg::Matrix<5, 5> inv_dh;
+    Core::LinAlg::Matrix<5, 1> h;
 
-    Core::LinAlg::Matrix<5, 5, double> dh, inv_dh;
-    Core::LinAlg::Matrix<5, 1, double> h;
-
-    Core::LinAlg::Matrix<3, 3, double> dp_de, dq_de, dsigmastar_de, ddlambda_de, df_de;
-    Core::LinAlg::Matrix<3, 3, double> dptrial_de, dqtrial_de;
+    Core::LinAlg::SymmetricTensor<double, 3, 3> dp_de{};
+    Core::LinAlg::SymmetricTensor<double, 3, 3> dq_de{};
+    Core::LinAlg::SymmetricTensor<double, 3, 3> dsigmastar_de{};
+    Core::LinAlg::SymmetricTensor<double, 3, 3> ddlambda_de{};
+    Core::LinAlg::SymmetricTensor<double, 3, 3> df_de{};
 
     // compute the linearization of the trial stresses w.r.t strain
-    dptrial_de.update(K, eye, 0.0);
-    dqtrial_de.update(std::sqrt(6.0) * G, nhat, 0.0);
+    const Core::LinAlg::SymmetricTensor<double, 3, 3> dptrial_de = K * eye;
+    const Core::LinAlg::SymmetricTensor<double, 3, 3> dqtrial_de = std::sqrt(6.0) * G * nhat;
 
     // compute the Jacobian and its inverse
     Core::LinAlg::FixedSizeSerialDenseSolver<5, 5> serial_dense_solver;
-    this->compute_jacobian(dh, p_n1, q_n1, sigmastar, f_n1, dlambda, epbar_n);
     inv_dh.set_copy(dh);
     serial_dense_solver.set_matrix(inv_dh);
     serial_dense_solver.invert();
@@ -411,67 +351,66 @@ void Mat::PlasticGTN::evaluate(const Core::LinAlg::Tensor<double, 3, 3>* defgrad
       }
     }
 
-    for (unsigned int i = 0; i < 3; ++i)
-    {
-      for (unsigned int j = 0; j < i; ++j)
-      {
-        dp_de(i, j) = dp_de(j, i);
-        dq_de(i, j) = dq_de(j, i);
-        dsigmastar_de(i, j) = dsigmastar_de(j, i);
-        df_de(i, j) = df_de(j, i);
-        ddlambda_de(i, j) = ddlambda_de(j, i);
-      }
-    }
+    const double dphi_dq = this->compute_dphi_dq(p_n1, q_n1, sigmastar, fstar);
 
-    double dphi_dq = this->compute_dphi_dq(p_n1, q_n1, sigmastar, fstar);
+    const double d2phi_dq2 = this->compute_d2phi_dq2(p_n1, q_n1, sigmastar, fstar);
+    const double d2phi_dsigmastar2 = this->compute_d2phi_dsigmastar2(p_n1, q_n1, sigmastar, fstar);
+    const double d2phi_dsigmastardp =
+        this->compute_d2phi_dsigmastar_dp(p_n1, q_n1, sigmastar, fstar);
+    const double d2phi_dsigmastardq =
+        this->compute_d2phi_dsigmastar_dq(p_n1, q_n1, sigmastar, fstar);
+    const double d2phi_dsigmastardf =
+        this->compute_d2phi_dsigmastar_df(p_n1, q_n1, sigmastar, f_n1);
+    const double d2phi_dpdq = this->compute_d2phi_dp_dq(p_n1, q_n1, sigmastar, fstar);
+    const double d2phi_dqdf = this->compute_d2phi_dq_df(p_n1, q_n1, sigmastar, f_n1);
 
-    double d2phi_dq2 = this->compute_d2phi_dq2(p_n1, q_n1, sigmastar, fstar);
-    double d2phi_dsigmastar2 = this->compute_d2phi_dsigmastar2(p_n1, q_n1, sigmastar, fstar);
-    double d2phi_dsigmastardp = this->compute_d2phi_dsigmastar_dp(p_n1, q_n1, sigmastar, fstar);
-    double d2phi_dsigmastardq = this->compute_d2phi_dsigmastar_dq(p_n1, q_n1, sigmastar, fstar);
-    double d2phi_dsigmastardf = this->compute_d2phi_dsigmastar_df(p_n1, q_n1, sigmastar, f_n1);
-    double d2phi_dpdq = this->compute_d2phi_dp_dq(p_n1, q_n1, sigmastar, fstar);
-    double d2phi_dqdf = this->compute_d2phi_dq_df(p_n1, q_n1, sigmastar, f_n1);
-
-    double aux = dphi_dsigmastar * dphi_dsigmastar;
-    double d2sigmastar_dq2 = -(d2phi_dq2 * dphi_dsigmastar - d2phi_dsigmastardq * dphi_dq) / aux;
-    double d2sigmastar_dqdf = -(d2phi_dqdf * dphi_dsigmastar - d2phi_dsigmastardf * dphi_dq) / aux;
-    double d2sigmastar_dqdp = -(d2phi_dpdq * dphi_dsigmastar - d2phi_dsigmastardp * dphi_dq) / aux;
-    double d2sigmastar_dqdsigmastar =
+    const double aux = dphi_dsigmastar * dphi_dsigmastar;
+    const double d2sigmastar_dq2 =
+        -(d2phi_dq2 * dphi_dsigmastar - d2phi_dsigmastardq * dphi_dq) / aux;
+    const double d2sigmastar_dqdf =
+        -(d2phi_dqdf * dphi_dsigmastar - d2phi_dsigmastardf * dphi_dq) / aux;
+    const double d2sigmastar_dqdp =
+        -(d2phi_dpdq * dphi_dsigmastar - d2phi_dsigmastardp * dphi_dq) / aux;
+    const double d2sigmastar_dqdsigmastar =
         -(d2phi_dsigmastardq * dphi_dsigmastar - d2phi_dsigmastar2 * dphi_dq) / aux;
 
     // populate the consistent tangent operator
-    Core::LinAlg::FourTensor<3> Cep = Core::LinAlg::setup_deviatoric_projection_tensor<3>(
-        2 * G * (1.0 - 3 * G * dlambda / q_trial * (1.0 - f_n1) * dsigmastar_dq));
-    Core::LinAlg::FourTensorOperations::add_dyadic_product_matrix_matrix(
-        Cep, 6 * G * G * dlambda / q_trial * (1.0 - f_n1) * dsigmastar_dq, nhat, nhat);
-    Core::LinAlg::FourTensorOperations::add_dyadic_product_matrix_matrix(
-        Cep, sqrt(6.0) * G * dlambda * dsigmastar_dq, nhat, df_de);
-    Core::LinAlg::FourTensorOperations::add_dyadic_product_matrix_matrix(
-        Cep, -sqrt(6.0) * G * (1.0 - f_n1) * dlambda * d2sigmastar_dq2, nhat, dq_de);
-    Core::LinAlg::FourTensorOperations::add_dyadic_product_matrix_matrix(
-        Cep, -sqrt(6.0) * G * (1.0 - f_n1) * dlambda * d2sigmastar_dqdp, nhat, dp_de);
-    Core::LinAlg::FourTensorOperations::add_dyadic_product_matrix_matrix(Cep,
-        -sqrt(6.0) * G * (1.0 - f_n1) * dlambda * d2sigmastar_dqdsigmastar, nhat, dsigmastar_de);
-    Core::LinAlg::FourTensorOperations::add_dyadic_product_matrix_matrix(
-        Cep, -sqrt(6.0) * G * (1.0 - f_n1) * dlambda * d2sigmastar_dqdf, nhat, df_de);
-    Core::LinAlg::FourTensorOperations::add_dyadic_product_matrix_matrix(
-        Cep, -sqrt(6.0) * G * (1.0 - f_n1) * dsigmastar_dq, nhat, ddlambda_de);
-    Core::LinAlg::FourTensorOperations::add_dyadic_product_matrix_matrix(Cep, 1.0, eye, dp_de);
-
-    // transform back to matrix
-    Core::LinAlg::Voigt::setup_6x6_voigt_matrix_from_four_tensor(cmat_view, Cep);
+    cmat = 2 * G * (1.0 - 3 * G * dlambda / q_trial * (1.0 - f_n1) * dsigmastar_dq) *
+               deviatoric_projection +
+           6 * G * G * dlambda / q_trial * (1.0 - f_n1) * dsigmastar_dq *
+               Core::LinAlg::dyadic(nhat, nhat) +
+           sqrt(6.0) * G * dlambda * dsigmastar_dq * Core::LinAlg::dyadic(nhat, df_de) -
+           sqrt(6.0) * G * (1.0 - f_n1) * dlambda * d2sigmastar_dq2 *
+               Core::LinAlg::dyadic(nhat, dq_de) -
+           sqrt(6.0) * G * (1.0 - f_n1) * dlambda * d2sigmastar_dqdp *
+               Core::LinAlg::dyadic(nhat, dp_de) -
+           sqrt(6.0) * G * (1.0 - f_n1) * dlambda * d2sigmastar_dqdsigmastar *
+               Core::LinAlg::dyadic(nhat, dsigmastar_de) -
+           sqrt(6.0) * G * (1.0 - f_n1) * dlambda * d2sigmastar_dqdf *
+               Core::LinAlg::dyadic(nhat, df_de) -
+           sqrt(6.0) * G * (1.0 - f_n1) * dsigmastar_dq * Core::LinAlg::dyadic(nhat, ddlambda_de) +
+           Core::LinAlg::dyadic(eye, dp_de);
   }
 }
 
 bool Mat::PlasticGTN::evaluate_output_data(
     const std::string& name, Core::LinAlg::SerialDenseMatrix& data) const
 {
+  const auto write_strain_like_output = [&data](const std::size_t gp, const auto& strain_tensor)
+  {
+    data(gp, 0) = strain_tensor(0, 0);
+    data(gp, 1) = strain_tensor(1, 1);
+    data(gp, 2) = strain_tensor(2, 2);
+    data(gp, 3) = 2.0 * strain_tensor(0, 1);
+    data(gp, 4) = 2.0 * strain_tensor(1, 2);
+    data(gp, 5) = 2.0 * strain_tensor(0, 2);
+  };
+
   if (name == "accumulated_plastic_strain")
   {
     for (std::size_t gp = 0; gp < epbar_n_.size(); ++gp)
     {
-      data(gp, 0) = epbar_n1_.at(int(gp));
+      data(gp, 0) = epbar_n1_.at(gp);
     }
     return true;
   }
@@ -479,7 +418,7 @@ bool Mat::PlasticGTN::evaluate_output_data(
   {
     for (std::size_t gp = 0; gp < f_n_.size(); ++gp)
     {
-      data(gp, 0) = f_n1_.at(int(gp));
+      data(gp, 0) = f_n1_.at(gp);
     }
     return true;
   }
@@ -487,10 +426,7 @@ bool Mat::PlasticGTN::evaluate_output_data(
   {
     for (std::size_t gp = 0; gp < elastic_strain_n_.size(); ++gp)
     {
-      Core::LinAlg::Matrix<6, 1, double> tmp;
-      Core::LinAlg::Voigt::VoigtUtils<Core::LinAlg::Voigt::NotationType::strain>::matrix_to_vector(
-          elastic_strain_n1_.at(gp), tmp);
-      for (unsigned int i = 0; i < 6; ++i) data(gp, i) = tmp(i);
+      write_strain_like_output(gp, elastic_strain_n1_.at(gp));
     }
     return true;
   }
@@ -498,13 +434,9 @@ bool Mat::PlasticGTN::evaluate_output_data(
   {
     for (std::size_t gp = 0; gp < elastic_strain_n_.size(); ++gp)
     {
-      Core::LinAlg::Matrix<3, 3, double> plastic_strain_n1;
-      plastic_strain_n1.update(1.0, strain_n1_.at(gp), -1.0, elastic_strain_n1_.at(gp));
-
-      Core::LinAlg::Matrix<6, 1, double> tmp;
-      Core::LinAlg::Voigt::VoigtUtils<Core::LinAlg::Voigt::NotationType::strain>::matrix_to_vector(
-          plastic_strain_n1, tmp);
-      for (unsigned int i = 0; i < 6; ++i) data(gp, i) = tmp(i);
+      const Core::LinAlg::SymmetricTensor<double, 3, 3> plastic_strain_n1 =
+          strain_n1_.at(gp) - elastic_strain_n1_.at(gp);
+      write_strain_like_output(gp, plastic_strain_n1);
     }
     return true;
   }
@@ -731,23 +663,19 @@ double Mat::PlasticGTN::yield_value(const double alpha) const
 {
   const double yield = params_->yield_;      // initial yield stress
   const double isohard = params_->isohard_;  // linear isotropic hardening
-  std::vector<std::pair<std::string, double>> dp;
-  dp.emplace_back("epsp", alpha);
-  const double y = hardening_function_
-                       ? hardening_function_->evaluate(dp, {}, 0)  // using hardening function
-                       : yield + isohard * alpha;  // otherwise, use linear hardening
-  return y;
+  if (hardening_function_ == nullptr) return yield + isohard * alpha;
+
+  const std::vector<std::pair<std::string, double>> variables{{"epsp", alpha}};
+  return hardening_function_->evaluate(variables, {}, 0);
 }
 
 double Mat::PlasticGTN::yield_derivative(const double alpha) const
 {
   const double isohard = params_->isohard_;  // linear isotropic hardening
-  std::vector<std::pair<std::string, double>> dp;
-  dp.emplace_back("epsp", alpha);
-  const double y_d = hardening_function_ ? hardening_function_->evaluate_derivative(
-                                               dp, {}, 0)[0]  // using hardening function
-                                         : isohard;           // otherwise, use linear hardening
-  return y_d;
+  if (hardening_function_ == nullptr) return isohard;
+
+  const std::vector<std::pair<std::string, double>> variables{{"epsp", alpha}};
+  return hardening_function_->evaluate_derivative(variables, {}, 0)[0];
 }
 
 void Mat::PlasticGTN::compute_local_system(Core::LinAlg::Matrix<5, 1>& h, const double p,
@@ -782,40 +710,46 @@ void Mat::PlasticGTN::compute_jacobian(Core::LinAlg::Matrix<5, 5>& jac, const do
   const double G = 0.5 * E / (1 + NU);
   const double K = 1.0 / 3 * E / (1 - 2 * NU);
 
-  double fstar = this->compute_fstar(f);
-  double dphi_dsigmastar = this->compute_dphi_dsigmastar(p, q, sigmastar, fstar);
-  double dphi_dp = this->compute_dphi_dp(p, q, sigmastar, fstar);
-  double dphi_dq = this->compute_dphi_dq(p, q, sigmastar, fstar);
-  double dphi_df = this->compute_dphi_df(p, q, sigmastar, fstar);
+  const double fstar = this->compute_fstar(f);
+  const double dphi_dsigmastar = this->compute_dphi_dsigmastar(p, q, sigmastar, fstar);
+  const double dphi_dp = this->compute_dphi_dp(p, q, sigmastar, fstar);
+  const double dphi_dq = this->compute_dphi_dq(p, q, sigmastar, fstar);
+  const double dphi_df = this->compute_dphi_df(p, q, sigmastar, f);
 
-  double dsigmastar_dp = -dphi_dp / dphi_dsigmastar;
-  double dsigmastar_dq = -dphi_dq / dphi_dsigmastar;
+  const double dsigmastar_dp = -dphi_dp / dphi_dsigmastar;
+  const double dsigmastar_dq = -dphi_dq / dphi_dsigmastar;
 
-  double d2phi_dp2 = this->compute_d2phi_dp2(p, q, sigmastar, fstar);
-  double d2phi_dpdq = this->compute_d2phi_dp_dq(p, q, sigmastar, fstar);
-  double d2phi_dsigmastardp = this->compute_d2phi_dsigmastar_dp(p, q, sigmastar, fstar);
-  double d2phi_dpdf = this->compute_d2phi_dp_df(p, q, sigmastar, f);
+  const double d2phi_dp2 = this->compute_d2phi_dp2(p, q, sigmastar, fstar);
+  const double d2phi_dpdq = this->compute_d2phi_dp_dq(p, q, sigmastar, fstar);
+  const double d2phi_dsigmastardp = this->compute_d2phi_dsigmastar_dp(p, q, sigmastar, fstar);
+  const double d2phi_dpdf = this->compute_d2phi_dp_df(p, q, sigmastar, f);
 
-  double d2phi_dq2 = this->compute_d2phi_dq2(p, q, sigmastar, fstar);
-  double d2phi_dsigmastardq = this->compute_d2phi_dsigmastar_dq(p, q, sigmastar, fstar);
-  double d2phi_dqdf = this->compute_d2phi_dq_df(p, q, sigmastar, f);
+  const double d2phi_dq2 = this->compute_d2phi_dq2(p, q, sigmastar, fstar);
+  const double d2phi_dsigmastardq = this->compute_d2phi_dsigmastar_dq(p, q, sigmastar, fstar);
+  const double d2phi_dqdf = this->compute_d2phi_dq_df(p, q, sigmastar, f);
 
-  double d2phi_dsigmastar2 = this->compute_d2phi_dsigmastar2(p, q, sigmastar, fstar);
-  double d2phi_dsigmastardf = this->compute_d2phi_dsigmastar_df(p, q, sigmastar, f);
+  const double d2phi_dsigmastar2 = this->compute_d2phi_dsigmastar2(p, q, sigmastar, fstar);
+  const double d2phi_dsigmastardf = this->compute_d2phi_dsigmastar_df(p, q, sigmastar, f);
 
-  double aux = dphi_dsigmastar * dphi_dsigmastar;
+  const double aux = dphi_dsigmastar * dphi_dsigmastar;
 
-  double d2sigmastar_dp2 = -(d2phi_dp2 * dphi_dsigmastar - d2phi_dsigmastardp * dphi_dp) / aux;
-  double d2sigmastar_dpdq = -(d2phi_dpdq * dphi_dsigmastar - d2phi_dsigmastardq * dphi_dp) / aux;
-  double d2sigmastar_dpdsigmastar =
+  const double d2sigmastar_dp2 =
+      -(d2phi_dp2 * dphi_dsigmastar - d2phi_dsigmastardp * dphi_dp) / aux;
+  const double d2sigmastar_dpdq =
+      -(d2phi_dpdq * dphi_dsigmastar - d2phi_dsigmastardq * dphi_dp) / aux;
+  const double d2sigmastar_dpdsigmastar =
       -(d2phi_dsigmastardp * dphi_dsigmastar - d2phi_dsigmastar2 * dphi_dp) / aux;
-  double d2sigmastar_dpdf = -(d2phi_dpdf * dphi_dsigmastar - d2phi_dsigmastardf * dphi_dp) / aux;
+  const double d2sigmastar_dpdf =
+      -(d2phi_dpdf * dphi_dsigmastar - d2phi_dsigmastardf * dphi_dp) / aux;
 
-  double d2sigmastar_dq2 = -(d2phi_dq2 * dphi_dsigmastar - d2phi_dsigmastardq * dphi_dq) / aux;
-  double d2sigmastar_dqdp = -(d2phi_dpdq * dphi_dsigmastar - d2phi_dsigmastardp * dphi_dq) / aux;
-  double d2sigmastar_dqdsigmastar =
+  const double d2sigmastar_dq2 =
+      -(d2phi_dq2 * dphi_dsigmastar - d2phi_dsigmastardq * dphi_dq) / aux;
+  const double d2sigmastar_dqdp =
+      -(d2phi_dpdq * dphi_dsigmastar - d2phi_dsigmastardp * dphi_dq) / aux;
+  const double d2sigmastar_dqdsigmastar =
       -(d2phi_dsigmastardq * dphi_dsigmastar - d2phi_dsigmastar2 * dphi_dq) / aux;
-  double d2sigmastar_dqdf = -(d2phi_dqdf * dphi_dsigmastar - d2phi_dsigmastardf * dphi_dq) / aux;
+  const double d2sigmastar_dqdf =
+      -(d2phi_dqdf * dphi_dsigmastar - d2phi_dsigmastardf * dphi_dq) / aux;
 
   jac(0, 0) = 1.0 + (1.0 - f) * K * d2sigmastar_dp2 * dlambda;
   jac(0, 1) = (1.0 - f) * K * d2sigmastar_dpdq * dlambda;
